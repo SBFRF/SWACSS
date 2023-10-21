@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import glob
 import tqdm
 from matplotlib import pyplot as plt
-
+import shutil
 
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
@@ -72,7 +72,20 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     :param verbose: turn on print statement for file names as loading
     :return: pandas data frame of sonar data
     """
-    dd = glob.glob(os.path.join(dataPath, "*.dat"))  # find dat files for sonar
+    # find dat files for sonar
+    dd = glob.glob(os.path.join(dataPath, "*.dat"))
+    if len(dd) == 0:  # if i didn't find it first, maybe i need to unpack
+        # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
+        try:
+            toDir = "/" + os.path.join(*l.split(os.sep)[:-2])
+            fldInterest = [i for i in os.listdir(dataPath) if ".dat" not in i][0]
+            flist = glob.glob(os.path.join(dataPath, fldInterest,
+                               f"{fldInterest.split('-')[-1]+fldInterest.split('-')[0] +fldInterest.split('-')[1]}*.dat"))
+            [shutil.move(l, toDir) for l in flist]
+            #os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came frome
+        except:
+            raise EnvironmentError("The sounder date doesn't match folder date")
+
     print(f'found {len(dd)} sonar files for processing')  # loop through files
     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api
     ij, i3 = 0, 0
@@ -95,7 +108,12 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     # these are complicated preallocations
     txt, dt_profile, dt_txt, dt = np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object), \
                                   np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object)
-    rangev = np.zeros((allocateSize*2, allocateSize)) #arbitrary large value for time
+    try:
+        rangev = np.zeros((allocateSize*2, allocateSize)) #arbitrary large value for time
+    except:
+        allocateSize = int(allocateSize/3)
+        rangev = np.zeros((allocateSize*2, allocateSize)) #arbitrary large value for time
+
     profile_data = np.zeros((allocateSize*2, allocateSize))
     
     for fi in tqdm.tqdm(range(len(dd))):
