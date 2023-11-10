@@ -1,15 +1,15 @@
-import os
-import struct
 import datetime as DT
+import glob
+import os
+import shutil
+import struct
+
 import h5py
 import netCDF4 as nc
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import glob
 import tqdm
 from matplotlib import pyplot as plt
-import shutil
 
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
@@ -25,32 +25,32 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
         # this is before ppk processing so should agree with nmea strings
         fn = glob.glob(os.path.join(fldr, "*.pos"))[0]
         try:
-            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)',  'sde(m)', 'sdu(m)',
-                        'sdne(m)', 'sdeu(m)',  'sdun(m)', 'age(s)',  'ratio']
+            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)',
+                        'sdne(m)', 'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
             Tpos = pd.read_csv(fn, delimiter=r'\s+ ', header=10, names=colNames, engine='python')
             print(f'loaded {fn}')
-            if all(Tpos.iloc[-1]):  #if theres nan's in the last row
-                Tpos = Tpos.iloc[:-1] # remove last row
-            T_ppk = pd.concat([T_ppk, Tpos]) # merge multiple files to single dataframe
-        
+            if all(Tpos.iloc[-1]):  # if theres nan's in the last row
+                Tpos = Tpos.iloc[:-1]  # remove last row
+            T_ppk = pd.concat([T_ppk, Tpos])  # merge multiple files to single dataframe
+
         except:
             continue
     T_ppk['datetime'] = pd.to_datetime(T_ppk['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
-    
+
     # now make plot of both files
     # first llh file
     # plt.plot(T_LLH['lon'], T_LLH['lat'], '.-m', label = 'LLH file')
     # plt.xlabel('longitude')
     # plt.ylabel('latitude')
     if plot is not False:
-        plt.plot(T_ppk['lon'], T_ppk['lat'], '.-g', label = 'PPK file')
+        plt.plot(T_ppk['lon'], T_ppk['lat'], '.-g', label='PPK file')
         plt.xlabel('longitude')
         plt.ylabel('latitude')
         plt.legend()
         plt.tight_layout()
-        plt.savefig(plot+'Lat_Lon')
+        plt.savefig(plot + 'Lat_Lon')
         plt.close()
-        
+
         fig = plt.figure()
         plt.plot(T_ppk['datetime'], T_ppk['height'], label='elevation')
         plt.plot(T_ppk['datetime'], 10 * T_ppk['Q'], '.', label='quality factor')
@@ -58,9 +58,9 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
         plt.xlabel('time')
         plt.legend()
         plt.tight_layout()
-        plt.savefig(plot+'elev_Q')
+        plt.savefig(plot + 'elev_Q')
         plt.close()
-    
+
     return T_ppk
 
 
@@ -69,57 +69,56 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     
     :param dataPath: search path for sonar data files
     :param outfname: string to save h5 file. If None it will skip this process. (Default =None)
-    :param verbose: turn on print statement for file names as loading
+    :param verbose: turn on print statement for file names as loading (1 is little print, 2 is detailed print)
     :return: pandas data frame of sonar data
     """
     # find dat files for sonar
-    dd = glob.glob(os.path.join(dataPath, "*.dat"))
+    dd = sorted(glob.glob(os.path.join(dataPath, "*.dat")))
     if len(dd) == 0:  # if i didn't find it first, maybe i need to unpack
         # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
         try:
-            toDir = "/" + os.path.join(*l.split(os.sep)[:-2])
             fldInterest = [i for i in os.listdir(dataPath) if ".dat" not in i][0]
             flist = glob.glob(os.path.join(dataPath, fldInterest,
-                               f"{fldInterest.split('-')[-1]+fldInterest.split('-')[0] +fldInterest.split('-')[1]}*.dat"))
+                                           f"{fldInterest.split('-')[-1] + fldInterest.split('-')[0] + fldInterest.split('-')[1]}*.dat"))
+            toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
             [shutil.move(l, toDir) for l in flist]
-            #os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came frome
+            # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
+            dd = sorted(glob.glob(os.path.join(dataPath, '*.dat')))
+
         except:
             raise EnvironmentError("The sounder date doesn't match folder date")
 
-    print(f'found {len(dd)} sonar files for processing')  # loop through files
+
     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api
     ij, i3 = 0, 0
-    allocateSize = 50000  # some rediculously large number that memory can still hold.
+    allocateSize = 25000  # some ridiculously large number that memory can still hold.
     # initialize variables for loop
     distance, confidence, transmit_duration = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
         allocateSize)  # [],
     ping_number, scan_start, scan_length = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize)
     end_ping_hz, adc_sample_hz, timestamp_msec, spare2 = np.zeros(allocateSize), np.zeros(allocateSize), \
-                                                         np.zeros(allocateSize), np.zeros(allocateSize)
+        np.zeros(allocateSize), np.zeros(allocateSize)
     start_mm, length_mm, start_ping_hz = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize),
     ping_duration_sec, analog_gain, profile_data_length, = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
         allocateSize)
-    
+
     min_pwr, step_db, smooth_depth_m, fspare2 = np.zeros(allocateSize), np.zeros(allocateSize), \
-                                                np.zeros(allocateSize), np.zeros(allocateSize)
+        np.zeros(allocateSize), np.zeros(allocateSize)
     is_db, gain_index, power_results = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize)
     max_pwr, num_results = np.zeros(allocateSize), np.zeros(allocateSize, dtype=int)
     gain_setting, decimation, reserved = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize),
     # these are complicated preallocations
     txt, dt_profile, dt_txt, dt = np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object), \
-                                  np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object)
-    try:
-        rangev = np.zeros((allocateSize*2, allocateSize)) #arbitrary large value for time
-    except:
-        allocateSize = int(allocateSize/3)
-        rangev = np.zeros((allocateSize*2, allocateSize)) #arbitrary large value for time
+        np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object)
+    rangev = np.zeros((allocateSize * 2, allocateSize))  # arbitrary large value for time
 
-    profile_data = np.zeros((allocateSize*2, allocateSize))
-    
+    profile_data = np.zeros((allocateSize * 2, allocateSize))
+    if verbose == 1: print(f'processing {len(dd)} s500 files data files')
+
     for fi in tqdm.tqdm(range(len(dd))):
         with open(dd[fi], 'rb') as fid:
             fname = dd[fi]
-            if verbose: print(f'processing {fname}')
+            if verbose == 2: print(f'processing {fname}')
             xx = fid.read()
             st = [i + 1 for i in range(len(xx)) if xx[i:i + 2] == b'BR']
             # initalize variables for loop
@@ -137,7 +136,7 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
                 packet_id[ii] = struct.unpack('<H', fid.read(2))[0]
                 r1 = struct.unpack('<B', fid.read(1))[0]
                 r2 = struct.unpack('<B', fid.read(1))[0]
-                if packet_id[ii] == 1300: # these are i believe ping sonar values
+                if packet_id[ii] == 1300:  # these are i believe ping sonar values
                     distance[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
                     confidence[ij] = struct.unpack('<H', fid.read(2))[0]  # mm
                     transmit_duration[ij] = struct.unpack('<H', fid.read(2))[0]  # us
@@ -151,11 +150,11 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
                         if tmp:
                             profile_data[ij, jj] = tmp
                     ij += 1
-                
+
                 if packet_id[ii] == 3:
                     txt[ij] = fid.read(int(packet_len[ii])).decode('utf-8')
                     dt_txt[ij] = dt
-                if packet_id[ii] == 1308: # these are s500 protocols
+                if packet_id[ii] == 1308:  # these are s500 protocols
                     dtp = dt
                     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api#ping-response-packets
                     ping_number[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
@@ -166,7 +165,7 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
                     adc_sample_hz[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
                     timestamp_msec[ij] = struct.unpack('I', fid.read(4))[0]
                     spare2[ij] = struct.unpack('I', fid.read(4))[0]
-                    
+
                     ping_duration_sec[ij] = struct.unpack('f', fid.read(4))[0]
                     analog_gain[ij] = struct.unpack('f', fid.read(4))[0]
                     max_pwr[ij] = struct.unpack('f', fid.read(4))[0]
@@ -174,7 +173,7 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
                     step_db[ij] = struct.unpack('f', fid.read(4))[0]
                     smooth_depth_m[ij] = struct.unpack('f', fid.read(4))[0]
                     fspare2[ij] = struct.unpack('f', fid.read(4))[0]
-                    
+
                     is_db[ij] = struct.unpack('B', fid.read(1))[0]
                     gain_index[ij] = struct.unpack('B', fid.read(1))[0]
                     decimation[ij] = struct.unpack('B', fid.read(1))[0]
@@ -196,13 +195,13 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
                             if tmp:
                                 profile_data[ij, jj] = tmp
                     ij += 1
-    
+
     # clean up array's from over allocation to free up memory and data
-    idxShort = (num_results != 0 ).sum() #np.argwhere(num_results != 0).max()  # identify index for end of data to keep
-    num_results = np.median(num_results[:idxShort]).astype(int) #num_results[:idxShort][0]
+    idxShort = (num_results != 0).sum()  # np.argwhere(num_results != 0).max()  # identify index for end of data to keep
+    num_results = np.median(num_results[:idxShort]).astype(int)  # num_results[:idxShort][0]
 
     # make data frame for output
-    
+
     smooth_depth_m = smooth_depth_m[:idxShort]
     reserved = reserved[:idxShort]
     start_mm = start_mm[:idxShort]
@@ -222,17 +221,17 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     gain_index = gain_index[:idxShort]
     decimation = decimation[:idxShort]
     dt_profile = dt_profile[:idxShort]
-    
+
     # rangev,  profile_data need to be handled separately
     rangev = rangev[0, :num_results]
     profile_data = profile_data[:idxShort, :num_results].T
-    
+
     # now save output file (can't save as pandas because of multi-dimensional sonar data)
     if outfname is not None:
         with h5py.File(outfname, 'w') as hf:
             hf.create_dataset('min_pwr', data=min_pwr)
             hf.create_dataset('ping_duration', data=ping_duration_sec)
-            hf.create_dataset('time', data=nc.date2num(dt_profile, 'seconds since 1970-01-01')) # TODO: confirm tz
+            hf.create_dataset('time', data=nc.date2num(dt_profile, 'seconds since 1970-01-01'))  # TODO: confirm tz
             hf.create_dataset('smooth_depth_m', data=smooth_depth_m)
             hf.create_dataset('profile_data', data=profile_data)  # putting time as first axis
             hf.create_dataset('num_results', data=num_results)
@@ -250,7 +249,7 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
             hf.create_dataset('gain_index', data=gain_index)
             hf.create_dataset('decimation', data=decimation)
             hf.create_dataset('range_m', data=rangev / 1000)
-    
+
 
 def load_h5_to_dictionary(fname):
     """Loads already created H5 file from the sonar data. """
@@ -260,6 +259,28 @@ def load_h5_to_dictionary(fname):
         dataOut[key] = np.array(hf.get(key))
     return dataOut
 
+def makePOSfileFromRINEX(roverObservables, baseObservables, navFile, outfname, executablePath='rnx2rtkp', **kwargs):
+    """uses RTKLIB rnx2rtkp to post process
+    Args:
+        roverObservables: the RINEX format observables of the rover
+        baseObservables: the RINEX format observables from the base station
+        navFile: "at least one RINEX NAV/GNAV/HNAV file shall be included in input files."
+        executablePath: path for rnx2rtkp (Default rnx2rtkp in local directory)
+
+    Kwargs:
+        'freq': 1 L1, 2 L1+L2; 3: L1+L2+L3 (Default=3)
+
+    Assumes UTC time and yyyy/mm/dd hh:mm:ss.ss output time format
+
+    References:
+        https://rtkexplorer.com/pdfs/manual_demo5.pdf
+    """
+    # arguments for command here: https://rtkexplorer.com/pdfs/manual_demo5.pdf
+    sp3 = kwargs.get('sp3', '')
+    freq = kwargs.get('freq', 3)
+
+    os.system(
+        f'./{executablePath} -o {outfname} -t -u -f {freq} {roverObservables} {baseObservables} {navFile} {sp3}')
 
 def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_ping_depth_m, smooth_depth_m, index):
     """Create's a plot that shows full backscatter and individual profile  with identified depths
@@ -282,7 +303,7 @@ def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_p
     cbar = plt.colorbar(mappable=backscatter, ax=ax1)
     cbar.set_label('backscatter value')
     ax1.set_ylim([0, 5])
-    
+
     ax2 = plt.subplot2grid((4, 4), (0, 0), rowspan=4, sharey=ax1)
     ax2.plot(profile_data[index], sonarRange[0], alpha=1)
     ax2.plot(profile_data[index, np.argmin(np.abs(sonarRange[index] - this_ping_depth_m[index]))], this_ping_depth_m[
@@ -290,7 +311,7 @@ def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_p
     ax2.plot(profile_data[index, np.argmin(np.abs(sonarRange[index] - smooth_depth_m[index]))], smooth_depth_m[index],
              'black', marker='X', ms=10, label='smoothed bottom')
     ax2.legend()
-    
+
     for ii in range(5):
         ax2.plot(profile_data[index - ii], sonarRange[0], alpha=.4 - ii * .07, color='k')
     ax2.set_ylabel('depth [m]')
@@ -304,6 +325,7 @@ def mLabDatetime_to_epoch(dt):
     epoch = DT.datetime(1970, 1, 1)
     delta = dt - epoch
     return delta.total_seconds()
+
 
 def convertEllipsoid2NAVD88(lats, lons, ellipsoids, geoidFile='g2012bu8.bin'):
     """converts elipsoid values to NAVD88's
@@ -327,9 +349,10 @@ def convertEllipsoid2NAVD88(lats, lons, ellipsoids, geoidFile='g2012bu8.bin'):
               "developed using the uncompressed bin file.  It is unclear if the pygeodesy library requires the bin file to"
               " be uncompressed.  https://geodesy.noaa.gov/GEOID/GEOID12B/GEOID12B_CONUS.shtml")
         import wget
-        wget.download("https://www.ngs.noaa.gov/PC_PROD/GEOID12B/Format_unix/g2012bu0.bin")
+        wget.download("[w]")
     geoidHeight = instance.height(lats, lons)
     return ellipsoids - geoidHeight
+
 
 def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     """loads and possibly plots NMEA data from Emlid Reach M2 on yellowin
@@ -340,21 +363,33 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     :param verbose: will print more output when processing if True (default=False)
     :return:
     """
-    dd = glob.glob(os.path.join(fpath, '*.dat'))
-    if verbose: print(f'processing {len(dd)} GPS data files')
-    
+    flist = glob.glob(os.path.join(fpath, '*.dat'))
+    dd = sorted([flist[os.path.getsize(i) > 0] for i in flist])  # remove files of size zero from processing list
+    if len(dd) == 0:  # if i didn't find it first, maybe i need to unpack
+        try: # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
+            fldInterest = [i for i in os.listdir(fpath) if ".dat" not in i][0]
+            flist = glob.glob(os.path.join(fpath, fldInterest,
+                                           f"{fldInterest.split('-')[-1] + fldInterest.split('-')[0] + fldInterest.split('-')[1]}*.dat"))
+            toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
+            [shutil.move(l, toDir) for l in flist]
+            # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
+            dd = glob.glob(os.path.join(fpath, '*.dat'))
+        except:
+            raise EnvironmentError("The GNSS data date doesn't match folder date")
+    if verbose == 1: print(f'processing {len(dd)} GPS data files')
+
     ji = 0
     gps_time, lat, lon, altWGS84, altMSL, pc_time_gga = [], [], [], [], [], []
     lat, latHemi, lon, lonHemi, fixQuality, satCount, HDOP = [], [], [], [], [], [], []
     elevationMSL, eleUnits, geoSep, geoSepUnits, ageDiffGPS, diffRefStation = [], [], [], [], [], []
     for fi in tqdm.tqdm(range(1, len(dd))):
         fname = dd[fi]
-        
-        if verbose: print(fname)
+
+        if verbose == 2: print(fname)
 
         with open(fname, 'r') as f:
             lns = f.readlines()
-        
+
         for ln in lns:
             if ln.strip():
                 try:
@@ -363,8 +398,11 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
                     stringNMEA = ss[1].split(',')
                 except IndexError:
                     continue
-                
-                dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S.%f')
+
+                try:
+                    dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S.%f') #valueError
+                except ValueError:
+                    dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S')  # valueError
                 nmcode = stringNMEA[0]
 
                 if nmcode == 'GNGGA' and len(stringNMEA[2]) > 1:
@@ -400,7 +438,7 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
                     if lonHemi == 'W': lona = -lona
                     lon.append(lona)
                     fixQuality.append(
-                            int(stringNMEA[6]))  # GPS Fix Quality: represented by anumeric value. Common values
+                        int(stringNMEA[6]))  # GPS Fix Quality: represented by anumeric value. Common values
                     # include 0 for no fix, 1 for GPS fix, and 2 for Differential GPS (DGPS) fix.
                     satCount.append(int(stringNMEA[7]))
                     HDOP.append(float(stringNMEA[8]))  # measure of the horizontal accuracy of the GPS fix, represented
@@ -429,7 +467,8 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
         hf.create_dataset('fixQuality', data=fixQuality)
         hf.create_dataset('satCount', data=satCount)
         hf.create_dataset('HDOP', data=HDOP)
-        hf.create_dataset('pc_time_gga', data=[mLabDatetime_to_epoch(pc_time_gga[ii]) for ii in range(len(pc_time_gga))])
+        hf.create_dataset('pc_time_gga',
+                          data=[mLabDatetime_to_epoch(pc_time_gga[ii]) for ii in range(len(pc_time_gga))])
         hf.create_dataset('gps_time', data=[mLabDatetime_to_epoch(aa[i]) for i in range(len(aa))])
         hf.create_dataset('altMSL', data=altMSL)
         # hf.create_dataset('eleUnits', data=eleUnits) # putting time as first axis
@@ -439,7 +478,7 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     if plotfname is not False:
         plt.figure(figsize=(12, 4))
         plt.subplot(121)
-        plt.plot(lon, lat, '-')
+        plt.plot(lon, lat, '-.')
         plt.subplot(122)
         # plt.plot(pc_time_gga, altWGS84, '.-')
         # plt.plot(pc_time_gga, geoSep, label='geoSep')
@@ -480,47 +519,276 @@ def loadLLHfiles(flderlistLLH):
         try:
             T = pd.read_csv(fn, delimiter='  ', header=None, engine='python')
             print(f'loaded {fn}')
-            if all(T.iloc[-1]):  #if theres nan's in the last row
-                T = T.iloc[:-1] # remove last row
-            T_LLH = pd.concat([T_LLH, T]) # merge multiple files to single dataframe
-        
+            if all(T.iloc[-1]):  # if theres nan's in the last row
+                T = T.iloc[:-1]  # remove last row
+            T_LLH = pd.concat([T_LLH, T])  # merge multiple files to single dataframe
+
         except:
             continue
-    
+
     T_LLH['datetime'] = pd.to_datetime(T_LLH[0], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
     T_LLH['epochTime'] = T_LLH['datetime'].apply(lambda x: x.timestamp())
 
-    T_LLH['lat'] =  T_LLH[1]
+    T_LLH['lat'] = T_LLH[1]
     T_LLH['lon'] = T_LLH[2]
     return T_LLH
 
-
+def butter_lowpass_filter(data, cutoff, fs, order):
+    normal_cutoff = cutoff / nyq
+    # Get the filter coefficients
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    y = filtfilt(b, a, data)
+    return y
 def loadPPKdata(fldrlistPPK):
-    """This function loads multiple *.pos files that are output from the emlid post processing software.  it will
-    combine pos files that are in individual folders
+    """This function loads a single *.pos file per folder from a list of folders.  Each pos file in the folder has to be
+    named the same as the folder name + .pos
     
     :param fldrlistPPK: a list of folders with ind
     :return: a data frame with loaded ppk data
     """
-    
+
     T_ppk = pd.DataFrame()
     for fldr in sorted(fldrlistPPK):
         # this is before ppk processing so should agree with nmea strings
-        fn = glob.glob(os.path.join(fldr, "*.pos"))
-        assert len(fn) > 1, " This function assumes only one pos file per folder, please check"
-        fn = fn[np.argwhere(['events' not in f for f in fn]).squeeze()] # take the file that is not events
+        # fn = glob.glob(os.path.join(fldr, "*.pos"))
+        # assert len(fn) > 1, " This function assumes only one pos file per folder, please check"
+        fn = os.path.join(fldr, os.path.basename(fldr).split('_R')[0]+'.pos') # fn[np.argwhere(['events' not in f for f in fn]).squeeze()]  # take the file that is not events
         try:
-            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)',  'sde(m)', 'sdu(m)', \
-                        'sdne(m)', 'sdeu(m)',  'sdun(m)', 'age(s)',  'ratio']
+            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)', \
+                        'sdne(m)', 'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
             Tpos = pd.read_csv(fn, delimiter=r'\s+ ', header=10, names=colNames, engine='python')
             print(f'loaded {fn}')
-            if all(Tpos.iloc[-1]):  #if theres nan's in the last row
-                Tpos = Tpos.iloc[:-1] # remove last row
+            if all(Tpos.iloc[-1]):     # if theres nan's in the last row
+                Tpos = Tpos.iloc[:-1]  # remove last row
             Tpos['datetime'] = pd.to_datetime(Tpos['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
-            T_ppk = pd.concat([T_ppk, Tpos], ignore_index=True) # merge multiple files to single dataframe
-            
+            T_ppk = pd.concat([T_ppk, Tpos], ignore_index=True)  # merge multiple files to single dataframe
+
         except:  # this is in the event there is no data in the pos files
             continue
     T_ppk['datetime'] = pd.to_datetime(T_ppk['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
     T_ppk['epochTime'] = T_ppk['datetime'].apply(lambda x: x.timestamp())
     return T_ppk
+
+
+def transectSelection(data, **kwargs):
+    """
+      Args:
+          data: dataframe containing crawler transect data, to be modified with isTransect and profileNumber columns
+
+      Keyword Args:
+          'outputDir': this is the output directory for the file name save
+      Returns:
+          data: input dataframe with columns isTransect and profileNumber added, isTransect is a boolean denoting
+          whether a point is part of a transect, profileNumber is a float to designate the transect a point is a part of
+          typically the mean FRFy coordinate of the transect, points not part of a transect are assigned a profileNumber
+          of Nan
+    """
+    outputDir = kwargs.get('outputDir', os.getcwd())
+    plotting = kwargs.get('savePlots', True)
+    # added columns for isTransect boolean and profileNumber float to data dataframe
+    data["isTransect"] = [False] * data.shape[0]
+    data["profileNumber"] = [float("nan")] * data.shape[0]
+    # create copy of data for display, points are removed from the frame once identified as part of a transect
+    dispData = data.copy(deep=True)
+    # create copies of data and display data to hold previous version for undo function
+    prevDisp = data.copy(deep=True)
+    prevData = data.copy(deep=True)
+    # main loop for identifying transects, continues to allow for selections while user inputs y/Y
+    transectIdentify = input("Do you want to select a transect? (Y/N):")
+    while transectIdentify.lower() == "y" or transectIdentify.lower() == "u":
+        if transectIdentify.lower() == "y":
+            pointsValid = True
+            print(
+                "To identify a transect, please place a single point at the start and end of the transect with left click")
+            print(
+                "Right click to erase the most recently selected point. Middle click (press the scroll wheel) to save.")
+            print("Points have saved when they no longer appear on the graph, close the graph window to proceed.")
+            print("Remember to remove points used in zooming and panning with right click.")
+            print("If more or less than 2 points are selected, no changes will be made")
+            print(
+                "Each graph's colorscale represents the y axis of the other graph, i.e. the colorscale of the xy graph is time, and vice versa")
+            print("Select the transect using only 1 graph at a time")
+            # displays plots of two subplots, one with x vs y colored in time and one with time vs y colored in x
+            fig = plt.figure()
+            fig.suptitle("Transects xFRF (top) and time (bottom) vs yFRF ")
+            shape = (4, 6)
+
+            ax0 = plt.subplot2grid(shape, (0, 0), colspan=2, rowspan=5)
+            ax0.scatter(dispData["xFRF"], dispData["yFRF"], c=dispData["time"], cmap='hsv', s=1)
+            ax0.set(xlabel="xFRF [m]", ylabel="yFRF [m]")
+
+            ax1 = plt.subplot2grid(shape, (0, 2), colspan=6, rowspan=2)
+            ax1.scatter(dispData["UNIX_timestamp"], dispData["xFRF"], c=dispData["yFRF"], cmap='hsv', s=1)
+            ax1.set(xlabel="UNIX Timestamp (seconds)", ylabel="xFRF (m)")
+            ax2 = plt.subplot2grid(shape, (2, 2), colspan=6, rowspan=2, sharex=ax1)
+            ax2.scatter(dispData["UNIX_timestamp"], dispData["yFRF"], c=dispData["yFRF"], cmap='hsv', s=1)
+            ax2.set(xlabel="UNIX Timestamp (seconds)", ylabel="yFRF (m)")
+            plt.tight_layout()
+            nodes = plt.ginput(-1, 0)
+            print("Selected Points: ")
+            print(nodes)
+
+            # ginput returns list of tuples of selected coordinates, each is in its graph's proper scale
+            if len(nodes) == 2:
+                prevDisp = dispData.copy(deep=True)
+                prevData = data.copy(deep=True)
+                # false means ycoord is yFRF, true means UNIX Timestamp
+                isTime = [False, False]
+                isTime[0] = nodes[0][0] > 1500
+                isTime[1] = nodes[1][0] > 1500
+                if isTime[0] == isTime[1]:
+                    endpts = []
+                    # each node is matched to the closest point in the dispData dataframe
+                    for x in range(len(nodes)):
+                        curr = nodes[x]
+                        prevDist = float('inf')
+                        closest = tuple()
+                        for y in range(dispData.shape[0]):
+                            if isTime[x]:
+                                dist = np.sqrt(
+                                    (dispData["UNIX_timestamp"][y] - curr[0]) ** 2 + (
+                                                dispData["yFRF"][y] - curr[1]) ** 2)
+                            else:
+                                dist = np.sqrt(
+                                    (dispData["yFRF"][y] - curr[1]) ** 2 + (dispData["xFRF"][y] - curr[0]) ** 2)
+                            if dist < prevDist:
+                                prevDist = dist
+                                closest = (dispData["xFRF"][y], dispData["yFRF"][y])
+                        endpts.append(closest)
+
+                    # identify endpoints within dispdata frame
+                    isEndPt = []
+                    for x in range(dispData.shape[0]):
+                        if (dispData["xFRF"][x], dispData["yFRF"][x]) in endpts:
+                            isEndPt.append(True)
+                        else:
+                            isEndPt.append(False)
+                    dispData["endPt"] = isEndPt
+                    # endPt column identifies where each transect starts and stops
+
+                    # identify transect within dispdata
+                    isTransect = []
+                    betweenNodes = False
+                    for x in range(dispData.shape[0]):
+                        if dispData["endPt"][x] and not betweenNodes:
+                            # first node in time of transect
+                            betweenNodes = True
+                            isTransect.append(True)
+                        elif dispData["endPt"][x] and betweenNodes:
+                            # last node in time of transect
+                            betweenNodes = False
+                            isTransect.append(True)
+                        else:
+                            isTransect.append(betweenNodes)
+                    dispData["isTransect"] = isTransect
+
+                    # assign id to current transect
+                    currTransect = dispData.loc[dispData["isTransect"] == True]
+                    # remove newly assigned transect from display dataframe
+                    dispData = dispData.loc[dispData["isTransect"] == False]
+                    dispData = dispData.reset_index(drop=True)
+                    meanY = np.mean(currTransect["yFRF"])
+                    print("Close the window to continue.")
+                    # plt.figure()
+                    # plt.hist(currTransect["yFRF"])
+                    # plt.title("FRFy coords of selected transect")
+                    # plt.show()
+                    print("Mean FRFy coord of selected transect: ", meanY)
+                    transectIDstr = input(
+                        "What profile number would you like to assign this transect? (float type, press ENTER for mean FRFy): ")
+                    transectID = meanY
+                    if transectIDstr != "":
+                        transectID = float(transectIDstr)
+                    currTransect['profileNumber'] = currTransect['profileNumber'].replace([float("nan")], transectID)
+
+                    print("Updating dataframe...")
+                    # update primary dataframe
+                    # search once to find first timestamp, iterate afterwards
+                    startTime = currTransect["UNIX_timestamp"].iloc[0]
+                    endTime = currTransect["UNIX_timestamp"].iloc[currTransect.shape[0] - 1]
+                    firstI = 0
+                    for y in range(data.shape[0]):
+                        if data["UNIX_timestamp"].iloc[y] == startTime:
+                            firstI = y
+                            break
+
+                    for x in range(currTransect.shape[0]):
+                        data.loc[x + firstI, "profileNumber"] = transectID
+                        data.loc[x + firstI, "isTransect"] = True
+                else:
+                    # ignore selected points if from different plots
+                    print("Selected points from different plots. Discarding selected points.")
+                    pointsValid = False
+            else:
+                # ignore selected points if more or less than 2 selected
+                print("Selected more or less than 2 points. Discarding selected points.")
+                pointsValid = False
+
+            # display selected transects overlayed over all points, colored by profile number
+            print("Displaying current progress. Close the window to continue.")
+            transectsOnly = data.loc[data["isTransect"] == True]
+            plt.figure()
+            plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
+            plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+                        cmap='hsv', s=1)
+            if (pointsValid):
+                plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker='x')
+            cbar = plt.colorbar()
+            plt.xlabel("FRF Coordinate System X (m)")
+            plt.ylabel("FRF Coordinate System Y (m)")
+            cbar.set_label('Transect Number')
+            plt.title("Current Progress")
+            plt.show()
+            transectIdentify = input("Do you want to select another transect? (Y/N/U):")
+
+        else:
+            # undo case
+            dispData = prevDisp
+            data = prevData
+            print("Displaying current progress. Close the window to continue.")
+            transectsOnly = data.loc[data["isTransect"] == True]
+            plt.figure()
+            plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
+            plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+                        cmap='hsv', s=1)
+            cbar = plt.colorbar()
+            plt.xlabel("FRF Coordinate System X (m)")
+            plt.ylabel("FRF Coordinate System Y (m)")
+            cbar.set_label('Transect Number')
+            plt.title("Current Progress")
+            plt.show()
+            transectIdentify = input("Do you want to select another transect? (Y/N):")
+
+    # prompts for saving charts, excel and pickle
+    # title = input("What would you like to title the charts?: ")
+    # filenames = input("What would you like to name the files? (Type null to not save file): ")
+    if plotting is True:
+        transectsOnly = data.loc[data["isTransect"] == True]
+        print("Close the window to continue.")
+        plt.figure(figsize=(8, 16))
+        plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+                    cmap='hsv', s=1)
+        cbar = plt.colorbar()
+        plt.xlabel("xFRF (m)")
+        plt.ylabel("yFRF (m)")
+        cbar.set_label('Transect Number')
+        plt.title(f"Crawler Survey {data['time'][0].strftime('%Y-%m-%d')}")
+        plt.savefig(os.path.join(outputDir, f"Processed_linesWithNumbers_{data['time'][0].strftime('%Y-%m-%d')}.png"))
+        plt.close()
+
+        print("Close the window to continue.")
+        plt.figure(figsize=(8, 16))
+        plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
+        plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+                    cmap='hsv', s=1)
+        cbar = plt.colorbar()
+        plt.xlabel("xFRF (m)")
+        plt.ylabel("yFRF (m)")
+        cbar.set_label('Profile Number')
+        plt.title(f"Identified Transects vs All Points\n{data['time'][0].strftime('%Y-%m-%d')}")
+        plt.savefig(os.path.join(outputDir, f"Processed_linesWithAllData_{data['time'][0].strftime('%Y-%m-%d')}.png"))
+        plt.close()
+        # print(f'writing pickle Files {filenames}')
+        # data.to_excel(filenames + ".xlsx", engine='xlsxwriter')
+        # data.to_pickle(filenames + ".pkl")
+    return data
