@@ -631,7 +631,7 @@ def transectSelection(data, **kwargs):
             nodes = plt.ginput(-1, 0)
             print("Selected Points: ")
             print(nodes)
-
+            plt.close()
             # ginput returns list of tuples of selected coordinates, each is in its graph's proper scale
             if len(nodes) == 2:
                 prevDisp = dispData.copy(deep=True)
@@ -698,10 +698,9 @@ def transectSelection(data, **kwargs):
                     # plt.title("FRFy coords of selected transect")
                     # plt.show()
                     print("Mean FRFy coord of selected transect: ", meanY)
-                    transectIDstr = input(
-                        "What profile number would you like to assign this transect? (float type, press ENTER for mean FRFy): ")
+                    transectIDstr = input("What profile number would you like to assign this transect? (float type, press ENTER for mean FRFy): ")
                     transectID = meanY
-                    if transectIDstr != "":
+                    if transectIDstr != "":  # if the response is not enter
                         transectID = float(transectIDstr)
                     currTransect['profileNumber'] = currTransect['profileNumber'].replace([float("nan")], transectID)
 
@@ -715,6 +714,7 @@ def transectSelection(data, **kwargs):
                         if data["UNIX_timestamp"].iloc[y] == startTime:
                             firstI = y
                             break
+
 
                     for x in range(currTransect.shape[0]):
                         data.loc[x + firstI, "profileNumber"] = transectID
@@ -733,11 +733,11 @@ def transectSelection(data, **kwargs):
             transectsOnly = data.loc[data["isTransect"] == True]
             plt.figure()
             plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
-            plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+            a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
                         cmap='hsv', s=1)
             if (pointsValid):
                 plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker='x')
-            cbar = plt.colorbar()
+            cbar = plt.colorbar(a)
             plt.xlabel("FRF Coordinate System X (m)")
             plt.ylabel("FRF Coordinate System Y (m)")
             cbar.set_label('Transect Number')
@@ -753,9 +753,9 @@ def transectSelection(data, **kwargs):
             transectsOnly = data.loc[data["isTransect"] == True]
             plt.figure()
             plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
-            plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+            a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
                         cmap='hsv', s=1)
-            cbar = plt.colorbar()
+            cbar = plt.colorbar(a)
             plt.xlabel("FRF Coordinate System X (m)")
             plt.ylabel("FRF Coordinate System Y (m)")
             cbar.set_label('Transect Number')
@@ -770,14 +770,14 @@ def transectSelection(data, **kwargs):
         transectsOnly = data.loc[data["isTransect"] == True]
         print("Close the window to continue.")
         plt.figure(figsize=(8, 16))
-        plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+        a=plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
                     cmap='hsv', s=1)
-        cbar = plt.colorbar()
+        cbar = plt.colorbar(a)
         plt.xlabel("xFRF (m)")
         plt.ylabel("yFRF (m)")
         cbar.set_label('Transect Number')
-        plt.title(f"Crawler Survey {data['time'][0].strftime('%Y-%m-%d')}")
-        plt.savefig(os.path.join(outputDir, f"Processed_linesWithNumbers_{data['time'][0].strftime('%Y-%m-%d')}.png"))
+        plt.title(f"Crawler Survey {DT.datetime.utcfromtimestamp(data['date'][0])}")
+        plt.savefig(os.path.join(outputDir, f"Processed_linesWithNumbers_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
         plt.close()
 
         print("Close the window to continue.")
@@ -789,10 +789,8 @@ def transectSelection(data, **kwargs):
         plt.xlabel("xFRF (m)")
         plt.ylabel("yFRF (m)")
         cbar.set_label('Profile Number')
-        plt.title(f"Identified Transects vs All Points\n{data['time'][0].strftime('%Y-%m-%d')}")
-        plt.savefig(os.path.join(outputDir, f"Processed_linesWithAllData_{data['time'][0].strftime('%Y-%m-%d')}.png"))
+        plt.title(f"Identified Transects vs All Points\n{DT.datetime.utcfromtimestamp(data['date'][0])}")
+        plt.savefig(os.path.join(outputDir, f"Processed_linesWithAllData_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
         plt.close()
-        # print(f'writing pickle Files {filenames}')
-        # data.to_excel(filenames + ".xlsx", engine='xlsxwriter')
-        # data.to_pickle(filenames + ".pkl")
+
     return data

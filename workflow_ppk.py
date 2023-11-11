@@ -1,4 +1,5 @@
 import os
+
 import matplotlib
 from scipy import interpolate, signal
 
@@ -26,6 +27,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
     UTCthresh = DT.datetime(2023, 7,
                             10)  # date that Pi computer was changed to UTC time (will adjust timezone manually before this date)
     sonarMethod = 'instant'
+    RTKLibexecutablePath = 'ref/rnx2rtkp'
     ####################################################################################################################
 
     if datadir.endswith('/'): datadir = datadir[:-1]
@@ -62,17 +64,19 @@ def main(datadir, geoid, makePos=True, verbose=1):
     if makePos == True:
         # find folders with raw rinex
         rinexZipFiles = glob.glob(os.path.join(fpathEmlid, '*RINEX*.zip'))
-        baseZipFiles = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))[0]
-        with zipfile.ZipFile(baseZipFiles, 'r') as zip_ref:
-            zip_ref.extractall(path=baseZipFiles[:-4])
-        baseFname = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*o'))[0]
-        navFile = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*n'))[0]
-        sp3fname = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*sp3'))
-        if len(sp3fname) > 0:
-            sp3fname = sp3fname[0]
-        else:
-            sp3fname = ''
-
+        try:  # we've got a zip file from CORS station
+            baseZipFiles = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))[0]
+            with zipfile.ZipFile(baseZipFiles, 'r') as zip_ref:
+                zip_ref.extractall(path=baseZipFiles[:-4])
+            baseFname = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*o'))[0]
+            navFile = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*n'))[0]
+            sp3fname = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*sp3'))
+            if len(sp3fname) > 0:
+                sp3fname = sp3fname[0]
+            else:
+                sp3fname = ''
+        except IndexError:  # we downloaded the observation files
+            raise NotImplementedError('Need to develope methods to use the raw observations not from CORS')
         # unzip all the rinex Files
         for ff in rinexZipFiles:
             with zipfile.ZipFile(ff, 'r') as zip_ref:
@@ -82,11 +86,8 @@ def main(datadir, geoid, makePos=True, verbose=1):
             roverFname = flist_rinex[np.argwhere([i.endswith('O') for i in flist_rinex]).squeeze()]
             outfname = os.path.join(os.path.dirname(roverFname), os.path.basename(flist_rinex[0])[:-3] + "pos")
             # use below if the rover nav file is the right call
-            # navFile = flist_rinex[np.argwhere([i.endswith('P') for i in flist_rinex]).squeeze()]
-            executablePath = 'ref/rnx2rtkp'
-            print('converting using RTKLIB: Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp')
             yellowfinLib.makePOSfileFromRINEX(roverObservables=roverFname, baseObservables=baseFname, navFile=navFile,
-                                              outfname=outfname, executablePath=executablePath, sp3=sp3fname)
+                                              outfname=outfname, executablePath=RTKLibexecutablePath, sp3=sp3fname)
 
     # Now find all the folders that have ppk data in them (*.pos files in folders that have "raw" in them)
     # now identify the folders that have rinex in them
@@ -94,7 +95,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
     [fldrlistPPK.append(os.path.join(fpathEmlid, fname)) for fname in os.listdir(fpathEmlid) if
      'raw' in fname and '.zip' not in fname]
 
-    print('load PPK pos files')
+    print('load PPK pos files ---- THESE ARE WGS84!!!!!!!!!!!!!!')
     try:
         T_ppk = yellowfinLib.loadPPKdata(fldrlistPPK)
         T_ppk.to_hdf(saveFnamePPK, 'ppk')  # now save the h5 intermediate file
@@ -109,7 +110,8 @@ def main(datadir, geoid, makePos=True, verbose=1):
         ET2UTC = 4 * 60 * 60
     else:
         ET2UTC = 0  # time's already in UTC
-    if ET2UTC > 0: print(" I'm using a 'dumb' conversion from ET to UTC")
+    if ET2UTC > 0:
+        print(" I'm using a 'dumb' conversion from ET to UTC")
 
     # 6.2: load all files we created in previous steps
     sonarData = yellowfinLib.load_h5_to_dictionary(saveFnameSonar)
@@ -117,8 +119,8 @@ def main(datadir, geoid, makePos=True, verbose=1):
     T_ppk = pd.read_hdf(saveFnamePPK)
 
     # Adjust GNSS time by the Leap Seconds https://www.cnmoc.usff.navy.mil/Our-Commands/United-States-Naval-Observatory/Precise-Time-Department/Global-Positioning-System/USNO-GPS-Time-Transfer/Leap-Seconds/
-    T_ppk['epochTime'] = T_ppk['epochTime']  # - 18  # 18 is leap second adjustment
-    T_ppk['datetime'] = T_ppk['datetime']  # - DT.timedelta(seconds=18)  # making sure both are equal
+    # T_ppk['epochTime'] = T_ppk['epochTime'] - 18  # 18 is leap second adjustment
+    # T_ppk['datetime'] = T_ppk['datetime'] - DT.timedelta(seconds=18)  # making sure both are equal
 
     # convert raw ellipsoid values from satellite measurement to that of a vertical datum.  This uses NAVD88 [m] NAD83
     T_ppk['GNSS_elevation_NAVD88'] = yellowfinLib.convertEllipsoid2NAVD88(T_ppk['lat'], T_ppk['lon'], T_ppk['height'],
@@ -128,12 +130,12 @@ def main(datadir, geoid, makePos=True, verbose=1):
 
     # Compare GPS data to make sure timing is ok
     plt.figure()
-    plt.plot(payloadGpsData['gps_time'], pc_time_off, '.')
+    plt.plot(pc_time_off, '.')
     plt.title('time offset between pc time and GPS time')
-    plt.xlabel('gps time')
-    plt.ylabel('time offset')
+    plt.xlabel('PC time')
+    plt.ylabel('PC time - GGA string time (+leap seconds)')
     plt.savefig(os.path.join(plotDir, 'clockOffset.png'))
-    print(f'the sonar is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
+    print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
 
     # 6.4 Use the cerulean instantaneous bed detection since not sure about delay with smoothed
     # adjust time of the sonar time stamp with timezone shift (ET -> UTC) and the timeshift between the computer and GPS
@@ -150,24 +152,27 @@ def main(datadir, geoid, makePos=True, verbose=1):
 
     # 6.5 now plot sonar with time
     plt.figure(figsize=(18, 6))
-    cm = plt.pcolormesh(sonarData['time'], sonarData['range_m'], sonarData['profile_data'])
+    cm = plt.pcolormesh([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['range_m'],
+                        sonarData['profile_data'])
     cbar = plt.colorbar(cm)
     cbar.set_label('backscatter')
-    plt.plot(sonarData['time'], sonarData['this_ping_depth_m'], 'r-', lw=1, label='this ping Depth')
-    plt.plot(sonarData['time'], sonarData['smooth_depth_m'], 'k-', lw=2, label='smooth Depth')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-',
+             lw=1, label='this ping Depth')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=2,
+             label='smooth Depth')
     plt.ylim([10, 0])
     plt.legend(loc='lower left')
     # plt.gca().invert_yaxis()
-    plt.tight_layout()
+    plt.tight_layout(rect=[0.05, 0.05, 0.99, 0.99], w_pad=0.01, h_pad=0.01)
     plt.savefig(os.path.join(plotDir, 'SonarBackScatter.png'))
 
     # 6.6 Now lets take a look at all of our data from the different sources
     plt.figure(figsize=(10, 4))
     plt.suptitle('all data sources elevation', fontsize=20)
     plt.title('These data need to overlap in time for processing to work')
-    plt.plot(sonarData['time'], sonar_range, 'b.', label='sonar depth')
-    plt.plot(payloadGpsData['gps_time'], payloadGpsData['altMSL'], '.g', label='L1 (only) GPS elev (MSL)')
-    plt.plot(T_ppk['epochTime'], T_ppk['GNSS_elevation_NAVD88'], '.r', label='ppk elevation [NAVD88 m]')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g', label='L1 (only) GPS elev (MSL)')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r', label='ppk elevation [NAVD88 m]')
     plt.ylim([0, 10])
     plt.ylabel('elevation [m]')
     plt.xlabel('epoch time (s)')
@@ -231,7 +236,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
     plt.title('shifted residual between sonar and GNSS (should be 0)')
     plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i) - signal.detrend(ppkHeight_i), '.',
              label='residual')
-    plt.ylim([-1,1])
+    plt.ylim([-1, 1])
     plt.tight_layout()
     plt.show()
     plt.savefig(os.path.join(plotDir, 'subsetAfterCrossCorrelation.png'))
@@ -355,7 +360,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
                  gnss_out[idxDataToSave][logic] - antenna_offset - sonar_instant_depth_out[idxDataToSave][logic], '.',
                  label='instant depths')
         plt.plot(coords['xFRF'][logic],
-                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_smooth_depth_out[idxDataToSave][logic],'.',
+                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_smooth_depth_out[idxDataToSave][logic], '.',
                  label='smooth Depth')
         plt.plot(coords['xFRF'][logic], elevation_out[idxDataToSave][logic], '.', label='chosen depths')
         plt.legend()
@@ -364,32 +369,26 @@ def main(datadir, geoid, makePos=True, verbose=1):
         plt.tight_layout()
         plt.savefig(os.path.join(plotDir, 'singleProfile.png'))
 
-        data = {'time': time_out[idxDataToSave],
-                'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
-                'Latitude': lat_out[idxDataToSave],
-                'Longitude': lon_out[idxDataToSave],
-                'Northing': coords['StateplaneN'],
-                'Easting': coords['StateplaneE'],
-                'xFRF': coords['xFRF'],
-                'yFRF': coords['yFRF'],
-                'Elevation': elevation_out[idxDataToSave],
+        data = {'time': time_out[idxDataToSave], 'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
+                'Latitude': lat_out[idxDataToSave], 'Longitude': lon_out[idxDataToSave],
+                'Northing': coords['StateplaneN'], 'Easting': coords['StateplaneE'], 'xFRF': coords['xFRF'],
+                'yFRF': coords['yFRF'], 'Elevation': elevation_out[idxDataToSave],
                 'Profile_number': np.ones_like(elevation_out[idxDataToSave]) * -999,
                 'Survey_number': np.ones_like(elevation_out[idxDataToSave]) * -999,
                 'Ellipsoid': np.ones_like(elevation_out[idxDataToSave]) * -999}
 
         data['UNIX_timestamp'] = data['time']
-        data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data))
+        data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir)
         ## now make netCDF files
         ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')
         data['Profile_number'] = data.pop('profileNumber')
-
-        py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
-                                 varYaml='yamlFile/transect_variables.yml',
-                                 data=data)
+        # data['Profile_number'].iloc[np.isnan(data['Profile_number'])] = -999
+        data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
+        py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml', varYaml='yamlFile/transect_variables.yml', data=data)
     except:
         FRF = False
 
-    outputfile = os.path.join(datadir, f'{timeString}_combinedRawDataProduct.h5')
+    outputfile = os.path.join(datadir, f'{timeString}_totalCombinedRawData.h5')
     with h5py.File(outputfile, 'w') as hf:
         hf.create_dataset('time', data=time_out[idxDataToSave])
         hf.create_dataset('longitude', data=lon_out[idxDataToSave])
@@ -406,13 +405,14 @@ def main(datadir, geoid, makePos=True, verbose=1):
         if FRF is not False:
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
-
+        hf.create_dataset('Profile_number', data=data['Profile_number'])
 
 if __name__ == "__main__":
-    filepath = '/data/yellowfin/20230816' #327'  # 04' #623' #705'
+    filepath = '/data/yellowfin/20231109'  # 327'  # 04' #623' #705'
     ## change things in this
     # # establish data location paths to be used for the rest of the code base
     geoidFileLoc = r"ref/g2012bu0.bin"
     makePos = True
     verbose = 1  # level 2 is very detailed
     main(filepath, geoid=geoidFileLoc, makePos=makePos, verbose=verbose)
+    print(f"success processing {filepath}")

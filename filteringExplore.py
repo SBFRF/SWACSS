@@ -1,7 +1,11 @@
 from testbedutils imoprt geoprocess
-
+from minio import Minio
+import wget
+import os
 
 fname = '/data'
+
+#https://pratiman-91.github.io/2020/06/30/Plotting-GeoTIFF-in-python.html
 
 # convert to FRF
 # if makePos is True and 'ncdu' in baseZipFiles:
