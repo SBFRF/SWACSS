@@ -279,6 +279,7 @@ def makePOSfileFromRINEX(roverObservables, baseObservables, navFile, outfname, e
     sp3 = kwargs.get('sp3', '')
     freq = kwargs.get('freq', 3)
 
+    print(f'converting {os.path.basename(roverObservables)} using RTKLIB: Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp')
     os.system(
         f'./{executablePath} -o {outfname} -t -u -f {freq} {roverObservables} {baseObservables} {navFile} {sp3}')
 
@@ -556,7 +557,10 @@ def loadPPKdata(fldrlistPPK):
         try:
             colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)', \
                         'sdne(m)', 'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
-            Tpos = pd.read_csv(fn, delimiter=r'\s+ ', header=10, names=colNames, engine='python')
+            try:
+                Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine='python')
+            except ValueError:
+                Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine='python')
             print(f'loaded {fn}')
             if all(Tpos.iloc[-1]):     # if theres nan's in the last row
                 Tpos = Tpos.iloc[:-1]  # remove last row
@@ -739,9 +743,9 @@ def transectSelection(data, **kwargs):
             cbar.set_label('Transect Number')
             plt.title("Current Progress")
             plt.show()
-            transectIdentify = input("Do you want to select another transect? (Y/N/U):")
+            transectIdentify = input("Do you want to select another transect? yes-y, No-N, undo-u :")
 
-        else:
+        elif transectIdentify.lower() == "u":
             # undo case
             dispData = prevDisp
             data = prevData
@@ -758,10 +762,10 @@ def transectSelection(data, **kwargs):
             plt.title("Current Progress")
             plt.show()
             transectIdentify = input("Do you want to select another transect? (Y/N):")
-
+        else:
+            raise NotImplementedError('required inputs are (y)es/(n)o/(u)ndo')
     # prompts for saving charts, excel and pickle
-    # title = input("What would you like to title the charts?: ")
-    # filenames = input("What would you like to name the files? (Type null to not save file): ")
+
     if plotting is True:
         transectsOnly = data.loc[data["isTransect"] == True]
         print("Close the window to continue.")
