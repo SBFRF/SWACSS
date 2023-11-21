@@ -35,6 +35,8 @@ def main(datadir, geoid, makePos=True, verbose=1):
     timeString = os.path.basename(datadir)
     plotDir = os.path.join(datadir, 'figures')
     os.makedirs(plotDir, exist_ok=True)  # make folder structure if its not already made
+    argusGeotiff = yellowfinLib.threadGetArgusImagery(
+        DT.datetime.strptime(timeString, '%Y%m%d') + DT.timedelta(hours=14))
 
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
@@ -156,8 +158,8 @@ def main(datadir, geoid, makePos=True, verbose=1):
                         sonarData['profile_data'])
     cbar = plt.colorbar(cm)
     cbar.set_label('backscatter')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-',
-             lw=1, label='this ping Depth')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=1,
+             label='this ping Depth')
     plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=2,
              label='smooth Depth')
     plt.ylim([10, 0])
@@ -171,8 +173,10 @@ def main(datadir, geoid, makePos=True, verbose=1):
     plt.suptitle('all data sources elevation', fontsize=20)
     plt.title('These data need to overlap in time for processing to work')
     plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g', label='L1 (only) GPS elev (MSL)')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r', label='ppk elevation [NAVD88 m]')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
+             label='L1 (only) GPS elev (MSL)')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
+             label='ppk elevation [NAVD88 m]')
     plt.ylim([0, 10])
     plt.ylabel('elevation [m]')
     plt.xlabel('epoch time (s)')
@@ -340,6 +344,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
     plt.legend()
     plt.savefig(os.path.join(plotDir, 'FinalDataProduct.png'))
 
+
     FRF = True
     try:
         coords = geoprocess.FRFcoord(lon_out[idxDataToSave], lat_out[idxDataToSave])
@@ -384,7 +389,10 @@ def main(datadir, geoid, makePos=True, verbose=1):
         data['Profile_number'] = data.pop('profileNumber')
         # data['Profile_number'].iloc[np.isnan(data['Profile_number'])] = -999
         data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
-        py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml', varYaml='yamlFile/transect_variables.yml', data=data)
+        py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
+                                 varYaml='yamlFile/transect_variables.yml', data=data)
+        yellowfinLib.plotPlanViewOnArgus(data, argusGeotiff, ofName=os.path.join(plotDir, 'yellowfinDepthsOnArgus.png'))
+
     except:
         FRF = False
 
@@ -406,6 +414,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
         hf.create_dataset('Profile_number', data=data['Profile_number'])
+
 
 if __name__ == "__main__":
     filepath = '/data/yellowfin/20231109'  # 327'  # 04' #623' #705'
