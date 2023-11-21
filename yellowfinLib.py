@@ -3,13 +3,19 @@ import glob
 import os
 import shutil
 import struct
+import threading
+import time
 
 import h5py
 import netCDF4 as nc
 import numpy as np
 import pandas as pd
+import rasterio
 import tqdm
+import wget
 from matplotlib import pyplot as plt
+from rasterio import plot as rplt
+from testbedutils import geoprocess
 
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
@@ -25,8 +31,8 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
         # this is before ppk processing so should agree with nmea strings
         fn = glob.glob(os.path.join(fldr, "*.pos"))[0]
         try:
-            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)',
-                        'sdne(m)', 'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
+            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)', 'sdne(m)',
+                        'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
             Tpos = pd.read_csv(fn, delimiter=r'\s+ ', header=10, names=colNames, engine='python')
             print(f'loaded {fn}')
             if all(Tpos.iloc[-1]):  # if theres nan's in the last row
@@ -88,7 +94,6 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
         except:
             raise EnvironmentError("The sounder date doesn't match folder date")
 
-
     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api
     ij, i3 = 0, 0
     allocateSize = 25000  # some ridiculously large number that memory can still hold.
@@ -96,20 +101,20 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     distance, confidence, transmit_duration = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
         allocateSize)  # [],
     ping_number, scan_start, scan_length = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize)
-    end_ping_hz, adc_sample_hz, timestamp_msec, spare2 = np.zeros(allocateSize), np.zeros(allocateSize), \
-        np.zeros(allocateSize), np.zeros(allocateSize)
+    end_ping_hz, adc_sample_hz, timestamp_msec, spare2 = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
+        allocateSize), np.zeros(allocateSize)
     start_mm, length_mm, start_ping_hz = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize),
     ping_duration_sec, analog_gain, profile_data_length, = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
         allocateSize)
 
-    min_pwr, step_db, smooth_depth_m, fspare2 = np.zeros(allocateSize), np.zeros(allocateSize), \
-        np.zeros(allocateSize), np.zeros(allocateSize)
+    min_pwr, step_db, smooth_depth_m, fspare2 = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
+        allocateSize), np.zeros(allocateSize)
     is_db, gain_index, power_results = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize)
     max_pwr, num_results = np.zeros(allocateSize), np.zeros(allocateSize, dtype=int)
     gain_setting, decimation, reserved = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize),
     # these are complicated preallocations
-    txt, dt_profile, dt_txt, dt = np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object), \
-        np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object)
+    txt, dt_profile, dt_txt, dt = np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object), np.zeros(
+        allocateSize, dtype=object), np.zeros(allocateSize, dtype=object)
     rangev = np.zeros((allocateSize * 2, allocateSize))  # arbitrary large value for time
 
     profile_data = np.zeros((allocateSize * 2, allocateSize))
@@ -259,6 +264,7 @@ def load_h5_to_dictionary(fname):
         dataOut[key] = np.array(hf.get(key))
     return dataOut
 
+
 def makePOSfileFromRINEX(roverObservables, baseObservables, navFile, outfname, executablePath='rnx2rtkp', **kwargs):
     """uses RTKLIB rnx2rtkp to post process
     Args:
@@ -280,8 +286,8 @@ def makePOSfileFromRINEX(roverObservables, baseObservables, navFile, outfname, e
     freq = kwargs.get('freq', 3)
 
     print(f'converting {os.path.basename(roverObservables)} using RTKLIB: Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp')
-    os.system(
-        f'./{executablePath} -o {outfname} -t -u -f {freq} {roverObservables} {baseObservables} {navFile} {sp3}')
+    os.system(f'./{executablePath} -o {outfname} -t -u -f {freq} {roverObservables} {baseObservables} {navFile} {sp3}')
+
 
 def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_ping_depth_m, smooth_depth_m, index):
     """Create's a plot that shows full backscatter and individual profile  with identified depths
@@ -307,8 +313,8 @@ def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_p
 
     ax2 = plt.subplot2grid((4, 4), (0, 0), rowspan=4, sharey=ax1)
     ax2.plot(profile_data[index], sonarRange[0], alpha=1)
-    ax2.plot(profile_data[index, np.argmin(np.abs(sonarRange[index] - this_ping_depth_m[index]))], this_ping_depth_m[
-        index], 'grey', marker='X', ms=10, label='this ping')
+    ax2.plot(profile_data[index, np.argmin(np.abs(sonarRange[index] - this_ping_depth_m[index]))],
+             this_ping_depth_m[index], 'grey', marker='X', ms=10, label='this ping')
     ax2.plot(profile_data[index, np.argmin(np.abs(sonarRange[index] - smooth_depth_m[index]))], smooth_depth_m[index],
              'black', marker='X', ms=10, label='smoothed bottom')
     ax2.legend()
@@ -367,7 +373,7 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     flist = glob.glob(os.path.join(fpath, '*.dat'))
     dd = sorted([flist[os.path.getsize(i) > 0] for i in flist])  # remove files of size zero from processing list
     if len(dd) == 0:  # if i didn't find it first, maybe i need to unpack
-        try: # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
+        try:  # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
             fldInterest = [i for i in os.listdir(fpath) if ".dat" not in i][0]
             flist = glob.glob(os.path.join(fpath, fldInterest,
                                            f"{fldInterest.split('-')[-1] + fldInterest.split('-')[0] + fldInterest.split('-')[1]}*.dat"))
@@ -401,7 +407,7 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
                     continue
 
                 try:
-                    dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S.%f') #valueError
+                    dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S.%f')  # valueError
                 except ValueError:
                     dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S')  # valueError
                 nmcode = stringNMEA[0]
@@ -534,12 +540,19 @@ def loadLLHfiles(flderlistLLH):
     T_LLH['lon'] = T_LLH[2]
     return T_LLH
 
+
 def butter_lowpass_filter(data, cutoff, fs, order):
-    normal_cutoff = cutoff / nyq
+    from scipy import signal
+    b,a = signal.butter(order, cutoff/fs/2, 'low', analog=False)
+    output = signal.filtfilt(b, a, data)
+
+    # ormal_cutoff = cutoff / nyq
     # Get the filter coefficients
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
-    y = filtfilt(b, a, data)
-    return y
+    # b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    # y = filtfilt(b, a, data)
+    return output
+
+
 def loadPPKdata(fldrlistPPK):
     """This function loads a single *.pos file per folder from a list of folders.  Each pos file in the folder has to be
     named the same as the folder name + .pos
@@ -553,16 +566,17 @@ def loadPPKdata(fldrlistPPK):
         # this is before ppk processing so should agree with nmea strings
         # fn = glob.glob(os.path.join(fldr, "*.pos"))
         # assert len(fn) > 1, " This function assumes only one pos file per folder, please check"
-        fn = os.path.join(fldr, os.path.basename(fldr).split('_R')[0]+'.pos') # fn[np.argwhere(['events' not in f for f in fn]).squeeze()]  # take the file that is not events
+        fn = os.path.join(fldr, os.path.basename(fldr).split('_R')[
+            0] + '.pos')  # fn[np.argwhere(['events' not in f for f in fn]).squeeze()]  # take the file that is not events
         try:
-            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)', \
-                        'sdne(m)', 'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
+            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)', 'sdne(m)',
+                        'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
             try:
                 Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine='python')
             except ValueError:
                 Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine='python')
             print(f'loaded {fn}')
-            if all(Tpos.iloc[-1]):     # if theres nan's in the last row
+            if all(Tpos.iloc[-1]):  # if theres nan's in the last row
                 Tpos = Tpos.iloc[:-1]  # remove last row
             Tpos['datetime'] = pd.to_datetime(Tpos['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
             T_ppk = pd.concat([T_ppk, Tpos], ignore_index=True)  # merge multiple files to single dataframe
@@ -572,6 +586,74 @@ def loadPPKdata(fldrlistPPK):
     T_ppk['datetime'] = pd.to_datetime(T_ppk['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
     T_ppk['epochTime'] = T_ppk['datetime'].apply(lambda x: x.timestamp())
     return T_ppk
+
+
+def unpackYellowfinCombinedRaw(fname):
+    data = {}
+    with h5py.File(fname, 'r') as hf:
+        for var in ['time', 'longitude', 'latitude', 'elevation', 'fix_quality_GNSS', 'sonar_smooth_depth',
+                    'sonar_smooth_confidence', 'sonar_instant_depth', 'sonar_instant_depth', 'sonar_instant_confidence',
+                    'sonar_backscatter_out', 'bad_lat', 'bad_lon', 'xFRF', 'yFRF', 'Profile_number']:
+            data[var] = hf.get(var)[:]
+    return data
+
+
+def plotPlanViewOnArgus(data, geoTifName, ofName=None):
+    """plots a survey path over a geotiff at the FRF (assumes NC stateplane)
+    Args:
+        data: this is a dictionary of data loaded with keys of 'longitude', 'latitude', 'elevation'
+        geoTifName: this is a filenamepath of a geotiff file over which elevation and path data are to be overlayed
+        ofname: this is the plot output save name/location (default=None)
+
+    References
+        https://pratiman-91.github.io/2020/06/30/Plotting-GeoTIFF-in-python.html
+
+    """
+    coords = geoprocess.FRFcoord(data['longitude'], data['latitude'])
+    tt = 0
+    while not os.path.isfile(geoTifName):  # this is waiting for the file to show up, if the download is threaded
+        time.sleep(30)
+        tt += 30
+        print(f'waited for {tt} seconds for {geoTifName}')
+
+    timex = rasterio.open(geoTifName)
+    # array = timex.read()  # for reference, this pulls the image data out of the geotiff object
+    ## now make plot
+    plt.figure(figsize=(14, 10))
+    ax1 = plt.subplot()
+    aa = rplt.show(timex, ax=ax1)
+    a = ax1.scatter(coords['StateplaneE'], coords['StateplaneN'], c=data['elevation'], vmin=-8)
+    cbar = plt.colorbar(a)
+    cbar.set_label('depths')
+    ax1.set_xlabel('NC stateplane Easting')
+    ax1.set_ylabel('NC stateplane Northing')
+    if ofName is None: ofName = os.path.join(os.getcwd(), 'Overview_on_Argus.png')
+    plt.savefig(ofName)
+    plt.close()
+
+
+def getArgusImagery(dateOfInterest, ofName=None, imageType='timex', verbose=True):
+    # client = Minio("coastalimaging.erdc.dren.mil")
+    # ## now lets find what files are around
+    # objects = client.list_objects('FrfTower', prefix="Processed/alignedObliques/c1", recursive=True,)
+    baseURL = "https://coastalimaging.erdc.dren.mil/FrfTower/Processed/Orthophotos/cxgeo/"
+    fldr = dateOfInterest.strftime("%Y_%m_%d")
+    fname = f'{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.FrfTower.cxgeo.{imageType}.tif'
+    if verbose: print(f'retreiving {baseURL + fldr + fname}')
+    wgetURL = os.path.join(baseURL, fldr, fname)
+    if ofName is None:
+        ofName = os.path.join(os.getcwd(), os.path.basename(wgetURL))
+    wget.download(wgetURL, ofName)
+    if verbose: print(f"retrieved {ofName}")
+    return ofName
+
+
+def threadGetArgusImagery(dateOfInterest, ofName=None, imageType='timex', verbose=True):
+    if ofName is None:
+        ofName = os.path.join(os.getcwd(), f'Argus_{imageType}_{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.tif')
+    t = threading.Thread(target=getArgusImagery, args=[dateOfInterest, ofName, imageType, verbose], daemon=True)
+    t.start()
+    return ofName
 
 
 def transectSelection(data, **kwargs):
@@ -649,9 +731,8 @@ def transectSelection(data, **kwargs):
                         closest = tuple()
                         for y in range(dispData.shape[0]):
                             if isTime[x]:
-                                dist = np.sqrt(
-                                    (dispData["UNIX_timestamp"][y] - curr[0]) ** 2 + (
-                                                dispData["yFRF"][y] - curr[1]) ** 2)
+                                dist = np.sqrt((dispData["UNIX_timestamp"][y] - curr[0]) ** 2 + (
+                                        dispData["yFRF"][y] - curr[1]) ** 2)
                             else:
                                 dist = np.sqrt(
                                     (dispData["yFRF"][y] - curr[1]) ** 2 + (dispData["xFRF"][y] - curr[0]) ** 2)
@@ -698,7 +779,8 @@ def transectSelection(data, **kwargs):
                     # plt.title("FRFy coords of selected transect")
                     # plt.show()
                     print("Mean FRFy coord of selected transect: ", meanY)
-                    transectIDstr = input("What profile number would you like to assign this transect? (float type, press ENTER for mean FRFy): ")
+                    transectIDstr = input(
+                        "What profile number would you like to assign this transect? (float type, press ENTER for mean FRFy): ")
                     transectID = meanY
                     if transectIDstr != "":  # if the response is not enter
                         transectID = float(transectIDstr)
@@ -714,7 +796,6 @@ def transectSelection(data, **kwargs):
                         if data["UNIX_timestamp"].iloc[y] == startTime:
                             firstI = y
                             break
-
 
                     for x in range(currTransect.shape[0]):
                         data.loc[x + firstI, "profileNumber"] = transectID
@@ -734,7 +815,7 @@ def transectSelection(data, **kwargs):
             plt.figure()
             plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
             a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
-                        cmap='hsv', s=1)
+                            cmap='hsv', s=1)
             if (pointsValid):
                 plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker='x')
             cbar = plt.colorbar(a)
@@ -754,7 +835,7 @@ def transectSelection(data, **kwargs):
             plt.figure()
             plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
             a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
-                        cmap='hsv', s=1)
+                            cmap='hsv', s=1)
             cbar = plt.colorbar(a)
             plt.xlabel("FRF Coordinate System X (m)")
             plt.ylabel("FRF Coordinate System Y (m)")
@@ -770,14 +851,15 @@ def transectSelection(data, **kwargs):
         transectsOnly = data.loc[data["isTransect"] == True]
         print("Close the window to continue.")
         plt.figure(figsize=(8, 16))
-        a=plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
-                    cmap='hsv', s=1)
+        a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
+                        cmap='hsv', s=1)
         cbar = plt.colorbar(a)
         plt.xlabel("xFRF (m)")
         plt.ylabel("yFRF (m)")
         cbar.set_label('Transect Number')
         plt.title(f"Crawler Survey {DT.datetime.utcfromtimestamp(data['date'][0])}")
-        plt.savefig(os.path.join(outputDir, f"Processed_linesWithNumbers_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
+        plt.savefig(
+            os.path.join(outputDir, f"Processed_linesWithNumbers_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
         plt.close()
 
         print("Close the window to continue.")
@@ -790,7 +872,8 @@ def transectSelection(data, **kwargs):
         plt.ylabel("yFRF (m)")
         cbar.set_label('Profile Number')
         plt.title(f"Identified Transects vs All Points\n{DT.datetime.utcfromtimestamp(data['date'][0])}")
-        plt.savefig(os.path.join(outputDir, f"Processed_linesWithAllData_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
+        plt.savefig(
+            os.path.join(outputDir, f"Processed_linesWithAllData_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
         plt.close()
 
     return data
