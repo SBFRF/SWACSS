@@ -1,5 +1,5 @@
 import os
-
+import sys
 import matplotlib
 from scipy import interpolate, signal
 
@@ -36,7 +36,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
     plotDir = os.path.join(datadir, 'figures')
     os.makedirs(plotDir, exist_ok=True)  # make folder structure if its not already made
     argusGeotiff = yellowfinLib.threadGetArgusImagery(
-        DT.datetime.strptime(timeString, '%Y%m%d') + DT.timedelta(hours=14))
+        DT.datetime.strptime(timeString, '%Y%m%d') + DT.timedelta(hours=14), ofName=os.path.join(plotDir, f'Argus_{timeString}'),)
 
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
@@ -417,11 +417,16 @@ def main(datadir, geoid, makePos=True, verbose=1):
 
 
 if __name__ == "__main__":
-    filepath = '/data/yellowfin/20231109'  # 327'  # 04' #623' #705'
+    # filepath = '/data/yellowfin/20231109'  # 327'  # 04' #623' #705'
+    filepath = sys.argv[1]
+    assert os.path.isdir(filepath), "check your input filepath, code doesn't see the folder"
     ## change things in this
     # # establish data location paths to be used for the rest of the code base
-    geoidFileLoc = r"ref/g2012bu0.bin"
-    makePos = True
+    if len(sys.argv)> 2:
+        geoidFileLoc = sys.argv[1]
+    else:
+        geoidFileLoc = r"ref/g2012bu0.bin"
+    makePos = True  # this makes a POS file from CORS data
     verbose = 1  # level 2 is very detailed
     main(filepath, geoid=geoidFileLoc, makePos=makePos, verbose=verbose)
     print(f"success processing {filepath}")

@@ -609,7 +609,7 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
         https://pratiman-91.github.io/2020/06/30/Plotting-GeoTIFF-in-python.html
 
     """
-    coords = geoprocess.FRFcoord(data['longitude'], data['latitude'])
+    coords = geoprocess.FRFcoord(data['Longitude'], data['Latitude'])
     tt = 0
     while not os.path.isfile(geoTifName):  # this is waiting for the file to show up, if the download is threaded
         time.sleep(30)
@@ -622,7 +622,7 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
     plt.figure(figsize=(14, 10))
     ax1 = plt.subplot()
     aa = rplt.show(timex, ax=ax1)
-    a = ax1.scatter(coords['StateplaneE'], coords['StateplaneN'], c=data['elevation'], vmin=-8)
+    a = ax1.scatter(coords['StateplaneE'], coords['StateplaneN'], c=data['Elevation'], vmin=-8)
     cbar = plt.colorbar(a)
     cbar.set_label('depths')
     ax1.set_xlabel('NC stateplane Easting')

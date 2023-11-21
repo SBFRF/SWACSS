@@ -11,7 +11,6 @@ import netCDF4 as nc
 import csv, yaml
 import datetime as DT
 import time as ttime
-import datetime as DT
 
 
 def makenc_generic(inputfname, globalYaml, varYaml, data):
