@@ -96,22 +96,22 @@ def main(datadir, geoid, makePos=True, verbose=2):
     #                                        verbose=verbose)
     if makePos == True:
         # find folders with raw rinex
-        rinexZipFiles = glob.glob(os.path.join(fpathEmlid, '*RINEX*.zip'))
+        rinex_zip_files = glob.glob(os.path.join(fpathEmlid, '*RINEX*.zip'))
         try:  # we've got a zip file from CORS station
-            baseZipFiles = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))[0]
-            with zipfile.ZipFile(baseZipFiles, 'r') as zip_ref:
-                zip_ref.extractall(path=baseZipFiles[:-4])
-            baseFname = glob.glob(os.path.join(os.path.splitext(baseZipFiles)[0], '*o'))[0]
-            navFile = glob.glob(os.path.join(os.path.splitext(baseZipFiles)[0], '*n'))[0]
-            sp3fname = glob.glob(os.path.join(os.path.splitext(baseZipFiles)[0], '*sp3'))
-            if len(sp3fname) > 0:
-                sp3fname = sp3fname[0]
+            base_zip_files = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))[0]
+            with zipfile.ZipFile(base_zip_files, 'r') as zip_ref:
+                zip_ref.extractall(path=base_zip_files[:-4])
+            obs_fname = glob.glob(os.path.join(os.path.splitext(base_zip_files)[0], '*o'))[0]
+            nav_file = glob.glob(os.path.join(os.path.splitext(base_zip_files)[0], '*n'))[0]
+            sp3_fname = glob.glob(os.path.join(os.path.splitext(base_zip_files)[0], '*sp3'))
+            if len(sp3_fname) > 0:
+                sp3_fname = sp3_fname[0]
             else:
-                sp3fname = ''
+                sp3_fname = ''
         except IndexError:  # we downloaded the observation files
             raise NotImplementedError('Need to develope methods to use the raw observations not from CORS')
         # unzip all the rinex Files
-        for ff in rinexZipFiles:
+        for ff in rinex_zip_files:
             with zipfile.ZipFile(ff, 'r') as zip_ref:
                 zip_ref.extractall(path=ff[:-4])
             # identify and process rinex to Pos files
@@ -119,8 +119,8 @@ def main(datadir, geoid, makePos=True, verbose=2):
             roverFname = flist_rinex[np.argwhere([i.endswith('O') for i in flist_rinex]).squeeze()]
             outfname = os.path.join(os.path.dirname(roverFname), os.path.basename(flist_rinex[0])[:-3] + "pos")
             # use below if the rover nav file is the right call
-            yellowfinLib.makePOSfileFromRINEX(roverObservables=roverFname, baseObservables=baseFname, navFile=navFile,
-                                              outfname=outfname, executablePath=RTKLibexecutablePath, sp3=sp3fname)
+            yellowfinLib.makePOSfileFromRINEX(roverObservables=roverFname, baseObservables=obs_fname, navFile=nav_file,
+                                              outfname=outfname, executablePath=RTKLibexecutablePath, sp3=sp3_fname)
 
     # Now find all the folders that have ppk data in them (*.pos files in folders that have "raw" in them)
     # now identify the folders that have rinex in them
