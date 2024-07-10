@@ -22,7 +22,7 @@ from testbedutils import geoprocess
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
     """read and parse multiple pos files in multiple folders provided
-    
+
     :param fldrlistPPK: list of folders to provide
     :param plot: if a path name will save a QA/QC plots (default=False)
     :param saveFname: will save file as h5
@@ -33,17 +33,31 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
         # this is before ppk processing so should agree with nmea strings
         fn = glob.glob(os.path.join(fldr, "*.pos"))[0]
         try:
-            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)', 'sdne(m)',
-                        'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
-            Tpos = pd.read_csv(fn, delimiter=r'\s+ ', header=10, names=colNames, engine='python')
-            print(f'loaded {fn}')
+            colNames = [
+                "datetime",
+                "lat",
+                "lon",
+                "height",
+                "Q",
+                "ns",
+                "sdn(m)",
+                "sde(m)",
+                "sdu(m)",
+                "sdne(m)",
+                "sdeu(m)",
+                "sdun(m)",
+                "age(s)",
+                "ratio",
+            ]
+            Tpos = pd.read_csv(fn, delimiter=r"\s+ ", header=10, names=colNames, engine="python")
+            print(f"loaded {fn}")
             if all(Tpos.iloc[-1]):  # if theres nan's in the last row
                 Tpos = Tpos.iloc[:-1]  # remove last row
             T_ppk = pd.concat([T_ppk, Tpos])  # merge multiple files to single dataframe
 
         except:
             continue
-    T_ppk['datetime'] = pd.to_datetime(T_ppk['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
+    T_ppk["datetime"] = pd.to_datetime(T_ppk["datetime"], format="%Y/%m/%d %H:%M:%S.%f", utc=True)
 
     # now make plot of both files
     # first llh file
@@ -51,22 +65,26 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
     # plt.xlabel('longitude')
     # plt.ylabel('latitude')
     if plot is not False:
-        plt.plot(T_ppk['lon'], T_ppk['lat'], '.-g', label='PPK file')
-        plt.xlabel('longitude')
-        plt.ylabel('latitude')
+        plt.plot(T_ppk["lon"], T_ppk["lat"], ".-g", label="PPK file")
+        plt.xlabel("longitude")
+        plt.ylabel("latitude")
         plt.legend()
         plt.tight_layout()
-        plt.savefig(plot + 'Lat_Lon')
+        plt.savefig(plot + "Lat_Lon")
         plt.close()
 
         fig = plt.figure()
-        plt.plot(T_ppk['datetime'], T_ppk['height'], label='elevation')
-        plt.plot(T_ppk['datetime'], 10 * T_ppk['Q'], '.', label='quality factor')
-        plt.plot(T_ppk['datetime'], 10000 * (T_ppk['lat'] - T_ppk['lat'].iloc[0]), label='lat from original lat')
-        plt.xlabel('time')
+        plt.plot(T_ppk["datetime"], T_ppk["height"], label="elevation")
+        plt.plot(T_ppk["datetime"], 10 * T_ppk["Q"], ".", label="quality factor")
+        plt.plot(
+            T_ppk["datetime"],
+            10000 * (T_ppk["lat"] - T_ppk["lat"].iloc[0]),
+            label="lat from original lat",
+        )
+        plt.xlabel("time")
         plt.legend()
         plt.tight_layout()
-        plt.savefig(plot + 'elev_Q')
+        plt.savefig(plot + "elev_Q")
         plt.close()
 
     return T_ppk
@@ -74,7 +92,7 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
 
 def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     """Loads and concatenates all of the binary files (*.dat) located in the dataPath location
-    
+
     :param dataPath: search path for sonar data files
     :param outfname: string to save h5 file. If None it will skip this process. (Default =None)
     :param verbose: turn on print statement for file names as loading (1 is little print, 2 is detailed print)
@@ -86,110 +104,158 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
         # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
         try:
             fldInterest = [i for i in os.listdir(dataPath) if ".dat" not in i][0]
-            parts_interst = fldInterest.split('-')
-            flist = glob.glob(os.path.join(dataPath, fldInterest,
-                                           f"{parts_interst[-1] + parts_interst[0] + parts_interst[1]}*.dat"))
+            parts_interst = fldInterest.split("-")
+            flist = glob.glob(
+                os.path.join(
+                    dataPath,
+                    fldInterest,
+                    f"{parts_interst[-1] + parts_interst[0] + parts_interst[1]}*.dat",
+                )
+            )
             toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
             [shutil.move(l, toDir) for l in flist]
             # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
-            dd = sorted(glob.glob(os.path.join(dataPath, '*.dat')))
+            dd = sorted(glob.glob(os.path.join(dataPath, "*.dat")))
 
         except:
-            raise EnvironmentError("The sounder date doesn't match folder date, or there is no data in that folder")
+            raise EnvironmentError(
+                "The sounder date doesn't match folder date, or there is no data in that folder"
+            )
 
     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api
     ij, i3 = 0, 0
     allocateSize = 25000  # some ridiculously large number that memory can still hold.
     # initialize variables for loop
-    distance, confidence, transmit_duration = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
-        allocateSize)  # [],
-    ping_number, scan_start, scan_length = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize)
-    end_ping_hz, adc_sample_hz, timestamp_msec, spare2 = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
-        allocateSize), np.zeros(allocateSize)
-    start_mm, length_mm, start_ping_hz = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize),
-    ping_duration_sec, analog_gain, profile_data_length, = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
-        allocateSize)
+    distance, confidence, transmit_duration = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )  # [],
+    ping_number, scan_start, scan_length = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )
+    end_ping_hz, adc_sample_hz, timestamp_msec, spare2 = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )
+    start_mm, length_mm, start_ping_hz = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )
+    (
+        ping_duration_sec,
+        analog_gain,
+        profile_data_length,
+    ) = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )
 
-    min_pwr, step_db, smooth_depth_m, fspare2 = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(
-        allocateSize), np.zeros(allocateSize)
-    is_db, gain_index, power_results = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize)
+    min_pwr, step_db, smooth_depth_m, fspare2 = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )
+    is_db, gain_index, power_results = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )
     max_pwr, num_results = np.zeros(allocateSize), np.zeros(allocateSize, dtype=int)
-    gain_setting, decimation, reserved = np.zeros(allocateSize), np.zeros(allocateSize), np.zeros(allocateSize),
+    gain_setting, decimation, reserved = (
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+        np.zeros(allocateSize),
+    )
     # these are complicated preallocations
-    txt, dt_profile, dt_txt, dt = np.zeros(allocateSize, dtype=object), np.zeros(allocateSize, dtype=object), np.zeros(
-        allocateSize, dtype=object), np.zeros(allocateSize, dtype=object)
+    txt, dt_profile, dt_txt, dt = (
+        np.zeros(allocateSize, dtype=object),
+        np.zeros(allocateSize, dtype=object),
+        np.zeros(allocateSize, dtype=object),
+        np.zeros(allocateSize, dtype=object),
+    )
     rangev = np.zeros((allocateSize * 2, allocateSize))  # arbitrary large value for time
 
     profile_data = np.zeros((allocateSize * 2, allocateSize))
-    if verbose == 1: print(f'processing {len(dd)} s500 files data files')
+    if verbose == 1:
+        print(f"processing {len(dd)} s500 files data files")
 
     for fi in tqdm.tqdm(range(len(dd))):
-        with open(dd[fi], 'rb') as fid:
+        with open(dd[fi], "rb") as fid:
             fname = dd[fi]
-            logging.debug(f'processing {fname}')
+            logging.debug(f"processing {fname}")
             xx = fid.read()
-            st = [i + 1 for i in range(len(xx)) if xx[i:i + 2] == b'BR']
+            st = [i + 1 for i in range(len(xx)) if xx[i : i + 2] == b"BR"]
             # initalize variables for loop
             packet_len, packet_id = np.zeros(len(st)), np.zeros(len(st))
             for ii in range(len(st) - 1):
                 fid.seek(st[ii] + 1, os.SEEK_SET)
-                datestring = fid.read(26).decode('utf-8',
-                                                 'replace')  # 'replace' causes a replacement marker (such as '?')
+                datestring = fid.read(26).decode(
+                    "utf-8", "replace"
+                )  # 'replace' causes a replacement marker (such as '?')
                 # to be inserted where there is malformed data.
                 try:
-                    dt[ii] = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S.%f')
+                    dt[ii] = DT.datetime.strptime(datestring, "%Y-%m-%d %H:%M:%S.%f")
                 except:
                     continue
-                packet_len[ii] = struct.unpack('<H', fid.read(2))[0]
-                packet_id[ii] = struct.unpack('<H', fid.read(2))[0]
-                r1 = struct.unpack('<B', fid.read(1))[0]
-                r2 = struct.unpack('<B', fid.read(1))[0]
+                packet_len[ii] = struct.unpack("<H", fid.read(2))[0]
+                packet_id[ii] = struct.unpack("<H", fid.read(2))[0]
+                r1 = struct.unpack("<B", fid.read(1))[0]
+                r2 = struct.unpack("<B", fid.read(1))[0]
                 if packet_id[ii] == 1300:  # these are i believe ping sonar values
-                    distance[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
-                    confidence[ij] = struct.unpack('<H', fid.read(2))[0]  # mm
-                    transmit_duration[ij] = struct.unpack('<H', fid.read(2))[0]  # us
-                    ping_number[ij] = struct.unpack('<I', fid.read(4))[0]  # #
-                    scan_start[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
-                    scan_length[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
-                    gain_setting[ij] = struct.unpack('<I', fid.read(4))[0]
-                    profile_data_length[ij] = struct.unpack('<I', fid.read(4))[0]
+                    distance[ij] = struct.unpack("<I", fid.read(4))[0]  # mm
+                    confidence[ij] = struct.unpack("<H", fid.read(2))[0]  # mm
+                    transmit_duration[ij] = struct.unpack("<H", fid.read(2))[0]  # us
+                    ping_number[ij] = struct.unpack("<I", fid.read(4))[0]  # #
+                    scan_start[ij] = struct.unpack("<I", fid.read(4))[0]  # mm
+                    scan_length[ij] = struct.unpack("<I", fid.read(4))[0]  # mm
+                    gain_setting[ij] = struct.unpack("<I", fid.read(4))[0]
+                    profile_data_length[ij] = struct.unpack("<I", fid.read(4))[0]
                     for jj in range(200):
-                        tmp = struct.unpack('<B', fid.read(1))[0]
+                        tmp = struct.unpack("<B", fid.read(1))[0]
                         if tmp:
                             profile_data[ij, jj] = tmp
                     ij += 1
 
                 if packet_id[ii] == 3:
-                    txt[ij] = fid.read(int(packet_len[ii])).decode('utf-8')
+                    txt[ij] = fid.read(int(packet_len[ii])).decode("utf-8")
                     dt_txt[ij] = dt
                 if packet_id[ii] == 1308:  # these are s500 protocols
                     dtp = dt
                     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api#ping-response-packets
-                    ping_number[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
-                    start_mm[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
-                    length_mm[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
-                    start_ping_hz[ij] = struct.unpack('<I', fid.read(4))[0]  # us
-                    end_ping_hz[ij] = struct.unpack('<I', fid.read(4))[0]  # #
-                    adc_sample_hz[ij] = struct.unpack('<I', fid.read(4))[0]  # mm
-                    timestamp_msec[ij] = struct.unpack('I', fid.read(4))[0]
-                    spare2[ij] = struct.unpack('I', fid.read(4))[0]
+                    ping_number[ij] = struct.unpack("<I", fid.read(4))[0]  # mm
+                    start_mm[ij] = struct.unpack("<I", fid.read(4))[0]  # mm
+                    length_mm[ij] = struct.unpack("<I", fid.read(4))[0]  # mm
+                    start_ping_hz[ij] = struct.unpack("<I", fid.read(4))[0]  # us
+                    end_ping_hz[ij] = struct.unpack("<I", fid.read(4))[0]  # #
+                    adc_sample_hz[ij] = struct.unpack("<I", fid.read(4))[0]  # mm
+                    timestamp_msec[ij] = struct.unpack("I", fid.read(4))[0]
+                    spare2[ij] = struct.unpack("I", fid.read(4))[0]
 
-                    ping_duration_sec[ij] = struct.unpack('f', fid.read(4))[0]
-                    analog_gain[ij] = struct.unpack('f', fid.read(4))[0]
-                    max_pwr[ij] = struct.unpack('f', fid.read(4))[0]
-                    min_pwr[ij] = struct.unpack('f', fid.read(4))[0]
-                    step_db[ij] = struct.unpack('f', fid.read(4))[0]
-                    smooth_depth_m[ij] = struct.unpack('f', fid.read(4))[0]
-                    fspare2[ij] = struct.unpack('f', fid.read(4))[0]
+                    ping_duration_sec[ij] = struct.unpack("f", fid.read(4))[0]
+                    analog_gain[ij] = struct.unpack("f", fid.read(4))[0]
+                    max_pwr[ij] = struct.unpack("f", fid.read(4))[0]
+                    min_pwr[ij] = struct.unpack("f", fid.read(4))[0]
+                    step_db[ij] = struct.unpack("f", fid.read(4))[0]
+                    smooth_depth_m[ij] = struct.unpack("f", fid.read(4))[0]
+                    fspare2[ij] = struct.unpack("f", fid.read(4))[0]
 
-                    is_db[ij] = struct.unpack('B', fid.read(1))[0]
-                    gain_index[ij] = struct.unpack('B', fid.read(1))[0]
-                    decimation[ij] = struct.unpack('B', fid.read(1))[0]
-                    reserved[ij] = struct.unpack('B', fid.read(1))[0]
-                    num_results[ij] = struct.unpack('H', fid.read(2))[0]
-                    power_results[ij] = struct.unpack('H', fid.read(2))[0]
-                    rangev[ij, 0:num_results[ij]] = np.linspace(start_mm[ij], start_mm[ij] + length_mm[ij],
-                                                                num_results[ij])
+                    is_db[ij] = struct.unpack("B", fid.read(1))[0]
+                    gain_index[ij] = struct.unpack("B", fid.read(1))[0]
+                    decimation[ij] = struct.unpack("B", fid.read(1))[0]
+                    reserved[ij] = struct.unpack("B", fid.read(1))[0]
+                    num_results[ij] = struct.unpack("H", fid.read(2))[0]
+                    power_results[ij] = struct.unpack("H", fid.read(2))[0]
+                    rangev[ij, 0 : num_results[ij]] = np.linspace(
+                        start_mm[ij], start_mm[ij] + length_mm[ij], num_results[ij]
+                    )
                     dt_profile[ij] = dt[ii]  # assign datetime from data written
                     # profile_data_single = [] #= np.empty((num_results[-1], ), dtype=np.uint16)
                     for jj in range(num_results[ij]):
@@ -197,15 +263,17 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
                         read = fid.read(2)
                         if read:
                             try:  # data should be unsigned short
-                                tmp = struct.unpack('<H', read)[0]
+                                tmp = struct.unpack("<H", read)[0]
                             except:  # when it's unsigned character
-                                tmp = struct.unpack('B', read)[0]
+                                tmp = struct.unpack("B", read)[0]
                             if tmp:
                                 profile_data[ij, jj] = tmp
                     ij += 1
 
     # clean up array's from over allocation to free up memory and data
-    idxShort = (num_results != 0).sum()  # np.argwhere(num_results != 0).max()  # identify index for end of data to keep
+    idxShort = (
+        num_results != 0
+    ).sum()  # np.argwhere(num_results != 0).max()  # identify index for end of data to keep
     num_results = np.median(num_results[:idxShort]).astype(int)  # num_results[:idxShort][0]
 
     # make data frame for output
@@ -235,39 +303,43 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
 
     # now save output file (can't save as pandas because of multi-dimensional sonar data)
     if outfname is not None:
-        with h5py.File(outfname, 'w') as hf:
-            hf.create_dataset('min_pwr', data=min_pwr)
-            hf.create_dataset('ping_duration', data=ping_duration_sec)
-            hf.create_dataset('time', data=nc.date2num(dt_profile, 'seconds since 1970-01-01'))  # TODO: confirm tz
-            hf.create_dataset('smooth_depth_m', data=smooth_depth_m)
-            hf.create_dataset('profile_data', data=profile_data)  # putting time as first axis
-            hf.create_dataset('num_results', data=num_results)
-            hf.create_dataset('start_mm', data=start_mm)
-            hf.create_dataset('length_mm', data=length_mm)
-            hf.create_dataset('start_ping_hz', data=start_ping_hz)
-            hf.create_dataset('end_ping_hz', data=end_ping_hz)
-            hf.create_dataset('adc_sample_hz', data=adc_sample_hz)
-            hf.create_dataset('timestamp_msec', data=timestamp_msec)
-            hf.create_dataset('analog_gain', data=analog_gain)
-            hf.create_dataset('max_pwr', data=max_pwr)
-            hf.create_dataset('this_ping_depth_m', data=step_db)
-            hf.create_dataset('this_ping_depth_measurement_confidence', data=is_db)
-            hf.create_dataset('smoothed_depth_measurement_confidence', data=reserved)
-            hf.create_dataset('gain_index', data=gain_index)
-            hf.create_dataset('decimation', data=decimation)
-            hf.create_dataset('range_m', data=rangev / 1000)
+        with h5py.File(outfname, "w") as hf:
+            hf.create_dataset("min_pwr", data=min_pwr)
+            hf.create_dataset("ping_duration", data=ping_duration_sec)
+            hf.create_dataset(
+                "time", data=nc.date2num(dt_profile, "seconds since 1970-01-01")
+            )  # TODO: confirm tz
+            hf.create_dataset("smooth_depth_m", data=smooth_depth_m)
+            hf.create_dataset("profile_data", data=profile_data)  # putting time as first axis
+            hf.create_dataset("num_results", data=num_results)
+            hf.create_dataset("start_mm", data=start_mm)
+            hf.create_dataset("length_mm", data=length_mm)
+            hf.create_dataset("start_ping_hz", data=start_ping_hz)
+            hf.create_dataset("end_ping_hz", data=end_ping_hz)
+            hf.create_dataset("adc_sample_hz", data=adc_sample_hz)
+            hf.create_dataset("timestamp_msec", data=timestamp_msec)
+            hf.create_dataset("analog_gain", data=analog_gain)
+            hf.create_dataset("max_pwr", data=max_pwr)
+            hf.create_dataset("this_ping_depth_m", data=step_db)
+            hf.create_dataset("this_ping_depth_measurement_confidence", data=is_db)
+            hf.create_dataset("smoothed_depth_measurement_confidence", data=reserved)
+            hf.create_dataset("gain_index", data=gain_index)
+            hf.create_dataset("decimation", data=decimation)
+            hf.create_dataset("range_m", data=rangev / 1000)
 
 
 def load_h5_to_dictionary(fname):
-    """Loads already created H5 file from the sonar data. """
-    hf = h5py.File(fname, 'r')
+    """Loads already created H5 file from the sonar data."""
+    hf = h5py.File(fname, "r")
     dataOut = {}
     for key in hf.keys():
         dataOut[key] = np.array(hf.get(key))
     return dataOut
 
 
-def makePOSfileFromRINEX(roverObservables, baseObservables, navFile, outfname, executablePath='rnx2rtkp', **kwargs):
+def makePOSfileFromRINEX(
+    roverObservables, baseObservables, navFile, outfname, executablePath="rnx2rtkp", **kwargs
+):
     """uses RTKLIB rnx2rtkp to post process
     Args:
         roverObservables: the RINEX format observables of the rover
@@ -284,16 +356,22 @@ def makePOSfileFromRINEX(roverObservables, baseObservables, navFile, outfname, e
         https://rtkexplorer.com/pdfs/manual_demo5.pdf
     """
     # arguments for command here: https://rtkexplorer.com/pdfs/manual_demo5.pdf
-    sp3 = kwargs.get('sp3', '')
-    freq = kwargs.get('freq', 3)
+    sp3 = kwargs.get("sp3", "")
+    freq = kwargs.get("freq", 3)
 
-    print(f'converting {os.path.basename(roverObservables)} using RTKLIB: Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp')
-    os.system(f'./{executablePath} -o {outfname} -t -u -f {freq} {roverObservables} {baseObservables} {navFile} {sp3}')
+    print(
+        f"converting {os.path.basename(roverObservables)} using RTKLIB: Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp"
+    )
+    os.system(
+        f"./{executablePath} -o {outfname} -t -u -f {freq} {roverObservables} {baseObservables} {navFile} {sp3}"
+    )
 
 
-def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_ping_depth_m, smooth_depth_m, index):
+def plot_single_backscatterProfile(
+    fname, time, sonarRange, profile_data, this_ping_depth_m, smooth_depth_m, index
+):
     """Create's a plot that shows full backscatter and individual profile  with identified depths
-    
+
     :param fname:
     :param time:
     :param sonarRange:
@@ -305,25 +383,37 @@ def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_p
     """
     plt.figure(figsize=(12, 8))
     ax1 = plt.subplot2grid((4, 4), (0, 1), colspan=3, rowspan=4)
-    backscatter = ax1.pcolormesh(time, sonarRange[0], profile_data.T, shading='auto')
-    ax1.plot(time, this_ping_depth_m, color='black', ms=0.1, label='instant depth', alpha=0.5)
+    backscatter = ax1.pcolormesh(time, sonarRange[0], profile_data.T, shading="auto")
+    ax1.plot(time, this_ping_depth_m, color="black", ms=0.1, label="instant depth", alpha=0.5)
     # ax1.plot(time, smooth_depth_m, 'black', ms=1, label='Smooth Depth')
-    ax1.plot(time[index], smooth_depth_m[index], ms=15, marker='X', color='red')
+    ax1.plot(time[index], smooth_depth_m[index], ms=15, marker="X", color="red")
     cbar = plt.colorbar(mappable=backscatter, ax=ax1)
-    cbar.set_label('backscatter value')
+    cbar.set_label("backscatter value")
     ax1.set_ylim([0, 5])
 
     ax2 = plt.subplot2grid((4, 4), (0, 0), rowspan=4, sharey=ax1)
     ax2.plot(profile_data[index], sonarRange[0], alpha=1)
-    ax2.plot(profile_data[index, np.argmin(np.abs(sonarRange[index] - this_ping_depth_m[index]))],
-             this_ping_depth_m[index], 'grey', marker='X', ms=10, label='this ping')
-    ax2.plot(profile_data[index, np.argmin(np.abs(sonarRange[index] - smooth_depth_m[index]))], smooth_depth_m[index],
-             'black', marker='X', ms=10, label='smoothed bottom')
+    ax2.plot(
+        profile_data[index, np.argmin(np.abs(sonarRange[index] - this_ping_depth_m[index]))],
+        this_ping_depth_m[index],
+        "grey",
+        marker="X",
+        ms=10,
+        label="this ping",
+    )
+    ax2.plot(
+        profile_data[index, np.argmin(np.abs(sonarRange[index] - smooth_depth_m[index]))],
+        smooth_depth_m[index],
+        "black",
+        marker="X",
+        ms=10,
+        label="smoothed bottom",
+    )
     ax2.legend()
 
     for ii in range(5):
-        ax2.plot(profile_data[index - ii], sonarRange[0], alpha=.4 - ii * .07, color='k')
-    ax2.set_ylabel('depth [m]')
+        ax2.plot(profile_data[index - ii], sonarRange[0], alpha=0.4 - ii * 0.07, color="k")
+    ax2.set_ylabel("depth [m]")
     plt.tight_layout()
     plt.savefig(fname)
     plt.close()
@@ -336,28 +426,34 @@ def mLabDatetime_to_epoch(dt):
     return delta.total_seconds()
 
 
-def convertEllipsoid2NAVD88(lats, lons, ellipsoids, geoidFile='g2012bu8.bin'):
+def convertEllipsoid2NAVD88(lats, lons, ellipsoids, geoidFile="g2012bu8.bin"):
     """converts elipsoid values to NAVD88's
-   
-   NOTE: if this is the first time you're using this, you'll likely have to go get the geoid bin file.  Code was
-        developed using the uncompressed bin file.  It is unclear if the pygeodesy library requires the bin file to
-        be uncompressed.  https://geodesy.noaa.gov/GEOID/GEOID12B/GEOID12B_CONUS.shtml
-  
-  :param lats:
-  :param lons:
-  :param ellipsoids: raw sattelite elipsoid values.
-  :param geoidFile: pull from https://geodesy.noaa.gov/GEOID/GEOID12B/GEOID12B_CONUS.shtml
-  :return: NAVD88 values
-  """
+
+     NOTE: if this is the first time you're using this, you'll likely have to go get the geoid bin file.  Code was
+          developed using the uncompressed bin file.  It is unclear if the pygeodesy library requires the bin file to
+          be uncompressed.  https://geodesy.noaa.gov/GEOID/GEOID12B/GEOID12B_CONUS.shtml
+
+    :param lats:
+    :param lons:
+    :param ellipsoids: raw sattelite elipsoid values.
+    :param geoidFile: pull from https://geodesy.noaa.gov/GEOID/GEOID12B/GEOID12B_CONUS.shtml
+    :return: NAVD88 values
+    """
     from pygeodesy import geoids
-    assert len(lons) == len(lats) == len(ellipsoids), 'lons/lats/elipsoids need to be of same length'
+
+    assert (
+        len(lons) == len(lats) == len(ellipsoids)
+    ), "lons/lats/elipsoids need to be of same length"
     try:
         instance = geoids.GeoidG2012B(geoidFile)
     except ImportError:
-        print("if this is the first time you're using this, you'll likely have to go get the geoid bin file.  Code was "
-              "developed using the uncompressed bin file.  It is unclear if the pygeodesy library requires the bin file to"
-              " be uncompressed.  https://geodesy.noaa.gov/GEOID/GEOID12B/GEOID12B_CONUS.shtml")
+        print(
+            "if this is the first time you're using this, you'll likely have to go get the geoid bin file.  Code was "
+            "developed using the uncompressed bin file.  It is unclear if the pygeodesy library requires the bin file to"
+            " be uncompressed.  https://geodesy.noaa.gov/GEOID/GEOID12B/GEOID12B_CONUS.shtml"
+        )
         import wget
+
         wget.download("[w]")
     geoidHeight = instance.height(lats, lons)
     return ellipsoids - geoidHeight
@@ -365,27 +461,35 @@ def convertEllipsoid2NAVD88(lats, lons, ellipsoids, geoidFile='g2012bu8.bin'):
 
 def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     """loads and possibly plots NMEA data from Emlid Reach M2 on yellowin
-    
+
     :param fpath: location to search for NMEA data files
     :param saveFname: where to save the Hdf5 file
     :param plotfname: where to save plot showing path of yellowfin, if False, will not plot (default=False)
     :param verbose: will print more output when processing if True (default=False)
     :return:
     """
-    flist = glob.glob(os.path.join(fpath, '*.dat'))
-    dd = sorted([flist[os.path.getsize(i) > 0] for i in flist])  # remove files of size zero from processing list
+    flist = glob.glob(os.path.join(fpath, "*.dat"))
+    dd = sorted(
+        [flist[os.path.getsize(i) > 0] for i in flist]
+    )  # remove files of size zero from processing list
     if len(dd) == 0:  # if i didn't find it first, maybe i need to unpack
         try:  # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
             fldInterest = [i for i in os.listdir(fpath) if ".dat" not in i][0]
-            flist = glob.glob(os.path.join(fpath, fldInterest,
-                                           f"{fldInterest.split('-')[-1] + fldInterest.split('-')[0] + fldInterest.split('-')[1]}*.dat"))
+            flist = glob.glob(
+                os.path.join(
+                    fpath,
+                    fldInterest,
+                    f"{fldInterest.split('-')[-1] + fldInterest.split('-')[0] + fldInterest.split('-')[1]}*.dat",
+                )
+            )
             toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
             [shutil.move(l, toDir) for l in flist]
             # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
-            dd = glob.glob(os.path.join(fpath, '*.dat'))
+            dd = glob.glob(os.path.join(fpath, "*.dat"))
         except:
             raise EnvironmentError("The GNSS data date doesn't match folder date")
-    if verbose == 1: print(f'processing {len(dd)} GPS data files')
+    if verbose == 1:
+        print(f"processing {len(dd)} GPS data files")
 
     ji = 0
     gps_time, lat, lon, altWGS84, altMSL, pc_time_gga = [], [], [], [], [], []
@@ -394,27 +498,28 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     for fi in tqdm.tqdm(range(1, len(dd))):
         fname = dd[fi]
 
-        if verbose == 2: print(fname)
+        if verbose == 2:
+            print(fname)
 
-        with open(fname, 'r') as f:
+        with open(fname, "r") as f:
             lns = f.readlines()
 
         for ln in lns:
             if ln.strip():
                 try:
-                    ss = ln.split('$')
-                    datestring = ss[0].strip('#')
-                    stringNMEA = ss[1].split(',')
+                    ss = ln.split("$")
+                    datestring = ss[0].strip("#")
+                    stringNMEA = ss[1].split(",")
                 except IndexError:
                     continue
 
                 try:
-                    dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S.%f')  # valueError
+                    dt = DT.datetime.strptime(datestring, "%Y-%m-%d %H:%M:%S.%f")  # valueError
                 except ValueError:
-                    dt = DT.datetime.strptime(datestring, '%Y-%m-%d %H:%M:%S')  # valueError
+                    dt = DT.datetime.strptime(datestring, "%Y-%m-%d %H:%M:%S")  # valueError
                 nmcode = stringNMEA[0]
 
-                if nmcode == 'GNGGA' and len(stringNMEA[2]) > 1:
+                if nmcode == "GNGGA" and len(stringNMEA[2]) > 1:
                     # Sentence Identifier: This field identifies the type of NMEA sentence and is represented by "$GPGGA" for the GGA sentence.
                     # 1. UTC Time: This field provides the time in hours, minutes, and seconds in UTC.
                     # 2. Latitude: This field represents the latitude of the GPS fix in degrees and minutes, in the format of
@@ -444,13 +549,17 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
                     latHemi.append(stringNMEA[3])
                     lona = float(stringNMEA[4][:3]) + float(stringNMEA[4][2:]) / 60
                     lonHemi.append(stringNMEA[5])
-                    if lonHemi == 'W': lona = -lona
+                    if lonHemi == "W":
+                        lona = -lona
                     lon.append(lona)
                     fixQuality.append(
-                        int(stringNMEA[6]))  # GPS Fix Quality: represented by anumeric value. Common values
+                        int(stringNMEA[6])
+                    )  # GPS Fix Quality: represented by anumeric value. Common values
                     # include 0 for no fix, 1 for GPS fix, and 2 for Differential GPS (DGPS) fix.
                     satCount.append(int(stringNMEA[7]))
-                    HDOP.append(float(stringNMEA[8]))  # measure of the horizontal accuracy of the GPS fix, represented
+                    HDOP.append(
+                        float(stringNMEA[8])
+                    )  # measure of the horizontal accuracy of the GPS fix, represented
                     # by a numeric value.
                     altMSL.append(float(stringNMEA[9]))
                     eleUnits.append(stringNMEA[10])
@@ -464,41 +573,48 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     lat[lat == 0] = np.nan
     lon[lon == 0] = np.nan
     # convert datetimes to epochs for file writing.
-    gpstimeobjs = [DT.time(int(str(ii)[:2]), int(str(ii)[2:4]), int(str(ii)[4:6]), int(str(ii)[7:] + '00000')) for ii in
-                   gps_time]
-    aa = [DT.datetime.combine(pc_time_gga[ii].date(), gpstimeobjs[ii]) for ii in range(len(gpstimeobjs))]
+    gpstimeobjs = [
+        DT.time(int(str(ii)[:2]), int(str(ii)[2:4]), int(str(ii)[4:6]), int(str(ii)[7:] + "00000"))
+        for ii in gps_time
+    ]
+    aa = [
+        DT.datetime.combine(pc_time_gga[ii].date(), gpstimeobjs[ii])
+        for ii in range(len(gpstimeobjs))
+    ]
     # now save output file
-    with h5py.File(saveFname, 'w') as hf:
-        hf.create_dataset('lat', data=lat)
+    with h5py.File(saveFname, "w") as hf:
+        hf.create_dataset("lat", data=lat)
         # hf.create_dataset('latHemi', data=latHemi)
-        hf.create_dataset('lon', data=lon)
+        hf.create_dataset("lon", data=lon)
         # hf.create_dataset('lonHemi',data=lonHemi)
-        hf.create_dataset('fixQuality', data=fixQuality)
-        hf.create_dataset('satCount', data=satCount)
-        hf.create_dataset('HDOP', data=HDOP)
-        hf.create_dataset('pc_time_gga',
-                          data=[mLabDatetime_to_epoch(pc_time_gga[ii]) for ii in range(len(pc_time_gga))])
-        hf.create_dataset('gps_time', data=[mLabDatetime_to_epoch(aa[i]) for i in range(len(aa))])
-        hf.create_dataset('altMSL', data=altMSL)
+        hf.create_dataset("fixQuality", data=fixQuality)
+        hf.create_dataset("satCount", data=satCount)
+        hf.create_dataset("HDOP", data=HDOP)
+        hf.create_dataset(
+            "pc_time_gga",
+            data=[mLabDatetime_to_epoch(pc_time_gga[ii]) for ii in range(len(pc_time_gga))],
+        )
+        hf.create_dataset("gps_time", data=[mLabDatetime_to_epoch(aa[i]) for i in range(len(aa))])
+        hf.create_dataset("altMSL", data=altMSL)
         # hf.create_dataset('eleUnits', data=eleUnits) # putting time as first axis
         # hf.create_dataset('geoSepUnits', data=geoSepUnits)
-        hf.create_dataset('ageDiffGPS', data=ageDiffGPS)
+        hf.create_dataset("ageDiffGPS", data=ageDiffGPS)
     # now plot data
     if plotfname is not False:
         plt.figure(figsize=(12, 4))
         plt.subplot(121)
-        plt.plot(lon, lat, '-.')
+        plt.plot(lon, lat, "-.")
         plt.subplot(122)
         # plt.plot(pc_time_gga, altWGS84, '.-')
         # plt.plot(pc_time_gga, geoSep, label='geoSep')
-        plt.plot(pc_time_gga, altMSL, '.-', label='altMSL')
+        plt.plot(pc_time_gga, altMSL, ".-", label="altMSL")
         plt.savefig(plotfname)
         plt.close()
 
 
 def findTimeShiftCrossCorr(signal1, signal2, sampleFreq=1):
-    """  Finds time shift between two signals.
-    
+    """Finds time shift between two signals.
+
     :param signal1: a signal of same length of signal 2
     :param signal2: a signal of same length of signal 1
     :param sampleFreq: sampling frequency, in HZ
@@ -506,7 +622,8 @@ def findTimeShiftCrossCorr(signal1, signal2, sampleFreq=1):
     """
     import numpy as np
     from scipy.signal import correlate
-    assert len(signal1) == len(signal2), 'signals need to be the same lenth'
+
+    assert len(signal1) == len(signal2), "signals need to be the same lenth"
     # load your time series data into two separate arrays, let's call them signal1 and signal2.
     # compute the cross-correlation between the two signals using the correlate function:
     cross_corr = correlate(signal1, signal2)
@@ -526,8 +643,8 @@ def loadLLHfiles(flderlistLLH):
         # this is before ppk processing so should agree with nmea strings
         fn = glob.glob(os.path.join(fldr, "*"))[0]
         try:
-            T = pd.read_csv(fn, delimiter='  ', header=None, engine='python')
-            print(f'loaded {fn}')
+            T = pd.read_csv(fn, delimiter="  ", header=None, engine="python")
+            print(f"loaded {fn}")
             if all(T.iloc[-1]):  # if theres nan's in the last row
                 T = T.iloc[:-1]  # remove last row
             T_LLH = pd.concat([T_LLH, T])  # merge multiple files to single dataframe
@@ -535,17 +652,18 @@ def loadLLHfiles(flderlistLLH):
         except:
             continue
 
-    T_LLH['datetime'] = pd.to_datetime(T_LLH[0], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
-    T_LLH['epochTime'] = T_LLH['datetime'].apply(lambda x: x.timestamp())
+    T_LLH["datetime"] = pd.to_datetime(T_LLH[0], format="%Y/%m/%d %H:%M:%S.%f", utc=True)
+    T_LLH["epochTime"] = T_LLH["datetime"].apply(lambda x: x.timestamp())
 
-    T_LLH['lat'] = T_LLH[1]
-    T_LLH['lon'] = T_LLH[2]
+    T_LLH["lat"] = T_LLH[1]
+    T_LLH["lon"] = T_LLH[2]
     return T_LLH
 
 
 def butter_lowpass_filter(data, cutoff, fs, order):
     from scipy import signal
-    b,a = signal.butter(order, cutoff/fs/2, 'low', analog=False)
+
+    b, a = signal.butter(order, cutoff / fs / 2, "low", analog=False)
     output = signal.filtfilt(b, a, data)
 
     # ormal_cutoff = cutoff / nyq
@@ -558,7 +676,7 @@ def butter_lowpass_filter(data, cutoff, fs, order):
 def loadPPKdata(fldrlistPPK):
     """This function loads a single *.pos file per folder from a list of folders.  Each pos file in the folder has to be
     named the same as the folder name + .pos
-    
+
     :param fldrlistPPK: a list of folders with ind
     :return: a data frame with loaded ppk data
     """
@@ -568,34 +686,68 @@ def loadPPKdata(fldrlistPPK):
         # this is before ppk processing so should agree with nmea strings
         # fn = glob.glob(os.path.join(fldr, "*.pos"))
         # assert len(fn) > 1, " This function assumes only one pos file per folder, please check"
-        fn = os.path.join(fldr, os.path.basename(fldr).split('_R')[
-            0] + '.pos')  # fn[np.argwhere(['events' not in f for f in fn]).squeeze()]  # take the file that is not events
+        fn = os.path.join(
+            fldr, os.path.basename(fldr).split("_R")[0] + ".pos"
+        )  # fn[np.argwhere(['events' not in f for f in fn]).squeeze()]  # take the file that is not events
         try:
-            colNames = ['datetime', 'lat', 'lon', 'height', 'Q', 'ns', 'sdn(m)', 'sde(m)', 'sdu(m)', 'sdne(m)',
-                        'sdeu(m)', 'sdun(m)', 'age(s)', 'ratio']
+            colNames = [
+                "datetime",
+                "lat",
+                "lon",
+                "height",
+                "Q",
+                "ns",
+                "sdn(m)",
+                "sde(m)",
+                "sdu(m)",
+                "sdne(m)",
+                "sdeu(m)",
+                "sdun(m)",
+                "age(s)",
+                "ratio",
+            ]
             try:
-                Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine='python')
+                Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine="python")
             except ValueError:
-                Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine='python')
-            print(f'loaded {fn}')
+                Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine="python")
+            print(f"loaded {fn}")
             if all(Tpos.iloc[-1]):  # if theres nan's in the last row
                 Tpos = Tpos.iloc[:-1]  # remove last row
-            Tpos['datetime'] = pd.to_datetime(Tpos['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
-            T_ppk = pd.concat([T_ppk, Tpos], ignore_index=True)  # merge multiple files to single dataframe
+            Tpos["datetime"] = pd.to_datetime(
+                Tpos["datetime"], format="%Y/%m/%d %H:%M:%S.%f", utc=True
+            )
+            T_ppk = pd.concat(
+                [T_ppk, Tpos], ignore_index=True
+            )  # merge multiple files to single dataframe
 
         except:  # this is in the event there is no data in the pos files
             continue
-    T_ppk['datetime'] = pd.to_datetime(T_ppk['datetime'], format='%Y/%m/%d %H:%M:%S.%f', utc=True)
-    T_ppk['epochTime'] = T_ppk['datetime'].apply(lambda x: x.timestamp())
+    T_ppk["datetime"] = pd.to_datetime(T_ppk["datetime"], format="%Y/%m/%d %H:%M:%S.%f", utc=True)
+    T_ppk["epochTime"] = T_ppk["datetime"].apply(lambda x: x.timestamp())
     return T_ppk
 
 
 def unpackYellowfinCombinedRaw(fname):
     data = {}
-    with h5py.File(fname, 'r') as hf:
-        for var in ['time', 'longitude', 'latitude', 'elevation', 'fix_quality_GNSS', 'sonar_smooth_depth',
-                    'sonar_smooth_confidence', 'sonar_instant_depth', 'sonar_instant_depth', 'sonar_instant_confidence',
-                    'sonar_backscatter_out', 'bad_lat', 'bad_lon', 'xFRF', 'yFRF', 'Profile_number']:
+    with h5py.File(fname, "r") as hf:
+        for var in [
+            "time",
+            "longitude",
+            "latitude",
+            "elevation",
+            "fix_quality_GNSS",
+            "sonar_smooth_depth",
+            "sonar_smooth_confidence",
+            "sonar_instant_depth",
+            "sonar_instant_depth",
+            "sonar_instant_confidence",
+            "sonar_backscatter_out",
+            "bad_lat",
+            "bad_lon",
+            "xFRF",
+            "yFRF",
+            "Profile_number",
+        ]:
             data[var] = hf.get(var)[:]
     return data
 
@@ -611,12 +763,14 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
         https://pratiman-91.github.io/2020/06/30/Plotting-GeoTIFF-in-python.html
 
     """
-    coords = geoprocess.FRFcoord(data['Longitude'], data['Latitude'])
+    coords = geoprocess.FRFcoord(data["Longitude"], data["Latitude"])
     tt = 0
-    while not os.path.isfile(geoTifName):  # this is waiting for the file to show up, if the download is threaded
+    while not os.path.isfile(
+        geoTifName
+    ):  # this is waiting for the file to show up, if the download is threaded
         time.sleep(30)
         tt += 30
-        print(f'waited for {tt} seconds for {geoTifName}')
+        print(f"waited for {tt} seconds for {geoTifName}")
 
     timex = rasterio.open(geoTifName)
     # array = timex.read()  # for reference, this pulls the image data out of the geotiff object
@@ -624,55 +778,62 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
     plt.figure(figsize=(14, 10))
     ax1 = plt.subplot()
     aa = rplt.show(timex, ax=ax1)
-    a = ax1.scatter(coords['StateplaneE'], coords['StateplaneN'], c=data['Elevation'], vmin=-8)
+    a = ax1.scatter(coords["StateplaneE"], coords["StateplaneN"], c=data["Elevation"], vmin=-8)
     cbar = plt.colorbar(a)
-    cbar.set_label('depths')
-    ax1.set_xlabel('NC stateplane Easting')
-    ax1.set_ylabel('NC stateplane Northing')
-    if ofName is None: ofName = os.path.join(os.getcwd(), 'Overview_on_Argus.png')
+    cbar.set_label("depths")
+    ax1.set_xlabel("NC stateplane Easting")
+    ax1.set_ylabel("NC stateplane Northing")
+    if ofName is None:
+        ofName = os.path.join(os.getcwd(), "Overview_on_Argus.png")
     plt.savefig(ofName)
     plt.close()
 
 
-def getArgusImagery(dateOfInterest, ofName=None, imageType='timex', verbose=True):
+def getArgusImagery(dateOfInterest, ofName=None, imageType="timex", verbose=True):
     # client = Minio("coastalimaging.erdc.dren.mil")
     # ## now lets find what files are around
     # objects = client.list_objects('FrfTower', prefix="Processed/alignedObliques/c1", recursive=True,)
     baseURL = "https://coastalimaging.erdc.dren.mil/FrfTower/Processed/Orthophotos/cxgeo/"
     fldr = dateOfInterest.strftime("%Y_%m_%d")
     fname = f'{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.FrfTower.cxgeo.{imageType}.tif'
-    if verbose: print(f'retreiving {baseURL + fldr + fname}')
+    if verbose:
+        print(f"retreiving {baseURL + fldr + fname}")
     wgetURL = os.path.join(baseURL, fldr, fname)
     if ofName is None:
         ofName = os.path.join(os.getcwd(), os.path.basename(wgetURL))
     wget.download(wgetURL, ofName)
-    if verbose: print(f"retrieved {ofName}")
+    if verbose:
+        print(f"retrieved {ofName}")
     return ofName
 
 
-def threadGetArgusImagery(dateOfInterest, ofName=None, imageType='timex', verbose=True):
+def threadGetArgusImagery(dateOfInterest, ofName=None, imageType="timex", verbose=True):
     if ofName is None:
-        ofName = os.path.join(os.getcwd(), f'Argus_{imageType}_{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.tif')
-    t = threading.Thread(target=getArgusImagery, args=[dateOfInterest, ofName, imageType, verbose], daemon=True)
+        ofName = os.path.join(
+            os.getcwd(), f'Argus_{imageType}_{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.tif'
+        )
+    t = threading.Thread(
+        target=getArgusImagery, args=[dateOfInterest, ofName, imageType, verbose], daemon=True
+    )
     t.start()
     return ofName
 
 
 def transectSelection(data, **kwargs):
     """
-      Args:
-          data: dataframe containing crawler transect data, to be modified with isTransect and profileNumber columns
+    Args:
+        data: dataframe containing crawler transect data, to be modified with isTransect and profileNumber columns
 
-      Keyword Args:
-          'outputDir': this is the output directory for the file name save
-      Returns:
-          data: input dataframe with columns isTransect and profileNumber added, isTransect is a boolean denoting
-          whether a point is part of a transect, profileNumber is a float to designate the transect a point is a part of
-          typically the mean FRFy coordinate of the transect, points not part of a transect are assigned a profileNumber
-          of Nan
+    Keyword Args:
+        'outputDir': this is the output directory for the file name save
+    Returns:
+        data: input dataframe with columns isTransect and profileNumber added, isTransect is a boolean denoting
+        whether a point is part of a transect, profileNumber is a float to designate the transect a point is a part of
+        typically the mean FRFy coordinate of the transect, points not part of a transect are assigned a profileNumber
+        of Nan
     """
-    outputDir = kwargs.get('outputDir', os.getcwd())
-    plotting = kwargs.get('savePlots', True)
+    outputDir = kwargs.get("outputDir", os.getcwd())
+    plotting = kwargs.get("savePlots", True)
     # added columns for isTransect boolean and profileNumber float to data dataframe
     data["isTransect"] = [False] * data.shape[0]
     data["profileNumber"] = [float("nan")] * data.shape[0]
@@ -687,14 +848,19 @@ def transectSelection(data, **kwargs):
         if transectIdentify.lower() == "y":
             pointsValid = True
             print(
-                "To identify a transect, please place a single point at the start and end of the transect with left click")
+                "To identify a transect, please place a single point at the start and end of the transect with left click"
+            )
             print(
-                "Right click to erase the most recently selected point. Middle click (press the scroll wheel) to save.")
-            print("Points have saved when they no longer appear on the graph, close the graph window to proceed.")
+                "Right click to erase the most recently selected point. Middle click (press the scroll wheel) to save."
+            )
+            print(
+                "Points have saved when they no longer appear on the graph, close the graph window to proceed."
+            )
             print("Remember to remove points used in zooming and panning with right click.")
             print("If more or less than 2 points are selected, no changes will be made")
             print(
-                "Each graph's colorscale represents the y axis of the other graph, i.e. the colorscale of the xy graph is time, and vice versa")
+                "Each graph's colorscale represents the y axis of the other graph, i.e. the colorscale of the xy graph is time, and vice versa"
+            )
             print("Select the transect using only 1 graph at a time")
             # displays plots of two subplots, one with x vs y colored in time and one with time vs y colored in x
             fig = plt.figure()
@@ -702,14 +868,18 @@ def transectSelection(data, **kwargs):
             shape = (4, 6)
 
             ax0 = plt.subplot2grid(shape, (0, 0), colspan=2, rowspan=5)
-            ax0.scatter(dispData["xFRF"], dispData["yFRF"], c=dispData["time"], cmap='hsv', s=1)
+            ax0.scatter(dispData["xFRF"], dispData["yFRF"], c=dispData["time"], cmap="hsv", s=1)
             ax0.set(xlabel="xFRF [m]", ylabel="yFRF [m]")
 
             ax1 = plt.subplot2grid(shape, (0, 2), colspan=6, rowspan=2)
-            ax1.scatter(dispData["UNIX_timestamp"], dispData["xFRF"], c=dispData["yFRF"], cmap='hsv', s=1)
+            ax1.scatter(
+                dispData["UNIX_timestamp"], dispData["xFRF"], c=dispData["yFRF"], cmap="hsv", s=1
+            )
             ax1.set(xlabel="UNIX Timestamp (seconds)", ylabel="xFRF (m)")
             ax2 = plt.subplot2grid(shape, (2, 2), colspan=6, rowspan=2, sharex=ax1)
-            ax2.scatter(dispData["UNIX_timestamp"], dispData["yFRF"], c=dispData["yFRF"], cmap='hsv', s=1)
+            ax2.scatter(
+                dispData["UNIX_timestamp"], dispData["yFRF"], c=dispData["yFRF"], cmap="hsv", s=1
+            )
             ax2.set(xlabel="UNIX Timestamp (seconds)", ylabel="yFRF (m)")
             plt.tight_layout()
             nodes = plt.ginput(-1, 0)
@@ -729,15 +899,19 @@ def transectSelection(data, **kwargs):
                     # each node is matched to the closest point in the dispData dataframe
                     for x in range(len(nodes)):
                         curr = nodes[x]
-                        prevDist = float('inf')
+                        prevDist = float("inf")
                         closest = tuple()
                         for y in range(dispData.shape[0]):
                             if isTime[x]:
-                                dist = np.sqrt((dispData["UNIX_timestamp"][y] - curr[0]) ** 2 + (
-                                        dispData["yFRF"][y] - curr[1]) ** 2)
+                                dist = np.sqrt(
+                                    (dispData["UNIX_timestamp"][y] - curr[0]) ** 2
+                                    + (dispData["yFRF"][y] - curr[1]) ** 2
+                                )
                             else:
                                 dist = np.sqrt(
-                                    (dispData["yFRF"][y] - curr[1]) ** 2 + (dispData["xFRF"][y] - curr[0]) ** 2)
+                                    (dispData["yFRF"][y] - curr[1]) ** 2
+                                    + (dispData["xFRF"][y] - curr[0]) ** 2
+                                )
                             if dist < prevDist:
                                 prevDist = dist
                                 closest = (dispData["xFRF"][y], dispData["yFRF"][y])
@@ -782,11 +956,14 @@ def transectSelection(data, **kwargs):
                     # plt.show()
                     print("Mean FRFy coord of selected transect: ", meanY)
                     transectIDstr = input(
-                        "What profile number would you like to assign this transect? (float type, press ENTER for mean FRFy): ")
+                        "What profile number would you like to assign this transect? (float type, press ENTER for mean FRFy): "
+                    )
                     transectID = meanY
                     if transectIDstr != "":  # if the response is not enter
                         transectID = float(transectIDstr)
-                    currTransect['profileNumber'] = currTransect['profileNumber'].replace([float("nan")], transectID)
+                    currTransect["profileNumber"] = currTransect["profileNumber"].replace(
+                        [float("nan")], transectID
+                    )
 
                     print("Updating dataframe...")
                     # update primary dataframe
@@ -816,17 +993,24 @@ def transectSelection(data, **kwargs):
             transectsOnly = data.loc[data["isTransect"] == True]
             plt.figure()
             plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
-            a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
-                            cmap='hsv', s=1)
-            if (pointsValid):
-                plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker='x')
+            a = plt.scatter(
+                transectsOnly["xFRF"],
+                transectsOnly["yFRF"],
+                c=transectsOnly["profileNumber"].to_list(),
+                cmap="hsv",
+                s=1,
+            )
+            if pointsValid:
+                plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker="x")
             cbar = plt.colorbar(a)
             plt.xlabel("FRF Coordinate System X (m)")
             plt.ylabel("FRF Coordinate System Y (m)")
-            cbar.set_label('Transect Number')
+            cbar.set_label("Transect Number")
             plt.title("Current Progress")
             plt.show()
-            transectIdentify = input("Do you want to select another transect? yes-y, No-N, undo-u :")
+            transectIdentify = input(
+                "Do you want to select another transect? yes-y, No-N, undo-u :"
+            )
 
         elif transectIdentify.lower() == "u":
             # undo case
@@ -836,46 +1020,71 @@ def transectSelection(data, **kwargs):
             transectsOnly = data.loc[data["isTransect"] == True]
             plt.figure()
             plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
-            a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
-                            cmap='hsv', s=1)
+            a = plt.scatter(
+                transectsOnly["xFRF"],
+                transectsOnly["yFRF"],
+                c=transectsOnly["profileNumber"].to_list(),
+                cmap="hsv",
+                s=1,
+            )
             cbar = plt.colorbar(a)
             plt.xlabel("FRF Coordinate System X (m)")
             plt.ylabel("FRF Coordinate System Y (m)")
-            cbar.set_label('Transect Number')
+            cbar.set_label("Transect Number")
             plt.title("Current Progress")
             plt.show()
             transectIdentify = input("Do you want to select another transect? (Y/N):")
         else:
-            raise NotImplementedError('required inputs are (y)es/(n)o/(u)ndo')
+            raise NotImplementedError("required inputs are (y)es/(n)o/(u)ndo")
     # prompts for saving charts, excel and pickle
 
     if plotting is True:
         transectsOnly = data.loc[data["isTransect"] == True]
         print("Close the window to continue.")
         plt.figure(figsize=(8, 16))
-        a = plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
-                        cmap='hsv', s=1)
+        a = plt.scatter(
+            transectsOnly["xFRF"],
+            transectsOnly["yFRF"],
+            c=transectsOnly["profileNumber"].to_list(),
+            cmap="hsv",
+            s=1,
+        )
         cbar = plt.colorbar(a)
         plt.xlabel("xFRF (m)")
         plt.ylabel("yFRF (m)")
-        cbar.set_label('Transect Number')
+        cbar.set_label("Transect Number")
         plt.title(f"Crawler Survey {DT.datetime.utcfromtimestamp(data['date'][0])}")
         plt.savefig(
-            os.path.join(outputDir, f"Processed_linesWithNumbers_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
+            os.path.join(
+                outputDir,
+                f"Processed_linesWithNumbers_{DT.datetime.utcfromtimestamp(data['date'][0])}.png",
+            )
+        )
         plt.close()
 
         print("Close the window to continue.")
         plt.figure(figsize=(8, 16))
         plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
-        plt.scatter(transectsOnly["xFRF"], transectsOnly["yFRF"], c=transectsOnly["profileNumber"].to_list(),
-                    cmap='hsv', s=1)
+        plt.scatter(
+            transectsOnly["xFRF"],
+            transectsOnly["yFRF"],
+            c=transectsOnly["profileNumber"].to_list(),
+            cmap="hsv",
+            s=1,
+        )
         cbar = plt.colorbar()
         plt.xlabel("xFRF (m)")
         plt.ylabel("yFRF (m)")
-        cbar.set_label('Profile Number')
-        plt.title(f"Identified Transects vs All Points\n{DT.datetime.utcfromtimestamp(data['date'][0])}")
+        cbar.set_label("Profile Number")
+        plt.title(
+            f"Identified Transects vs All Points\n{DT.datetime.utcfromtimestamp(data['date'][0])}"
+        )
         plt.savefig(
-            os.path.join(outputDir, f"Processed_linesWithAllData_{DT.datetime.utcfromtimestamp(data['date'][0])}.png"))
+            os.path.join(
+                outputDir,
+                f"Processed_linesWithAllData_{DT.datetime.utcfromtimestamp(data['date'][0])}.png",
+            )
+        )
         plt.close()
 
     return data
