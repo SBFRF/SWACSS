@@ -1,10 +1,12 @@
 import datetime as DT
 import glob
+import logging
 import os
 import shutil
 import struct
 import threading
 import time
+import logging
 
 import h5py
 import netCDF4 as nc
@@ -84,15 +86,16 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
         # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
         try:
             fldInterest = [i for i in os.listdir(dataPath) if ".dat" not in i][0]
+            parts_interst = fldInterest.split('-')
             flist = glob.glob(os.path.join(dataPath, fldInterest,
-                                           f"{fldInterest.split('-')[-1] + fldInterest.split('-')[0] + fldInterest.split('-')[1]}*.dat"))
+                                           f"{parts_interst[-1] + parts_interst[0] + parts_interst[1]}*.dat"))
             toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
             [shutil.move(l, toDir) for l in flist]
             # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
             dd = sorted(glob.glob(os.path.join(dataPath, '*.dat')))
 
         except:
-            raise EnvironmentError("The sounder date doesn't match folder date")
+            raise EnvironmentError("The sounder date doesn't match folder date, or there is no data in that folder")
 
     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api
     ij, i3 = 0, 0
@@ -123,7 +126,7 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     for fi in tqdm.tqdm(range(len(dd))):
         with open(dd[fi], 'rb') as fid:
             fname = dd[fi]
-            if verbose == 2: print(f'processing {fname}')
+            logging.debug(f'processing {fname}')
             xx = fid.read()
             st = [i + 1 for i in range(len(xx)) if xx[i:i + 2] == b'BR']
             # initalize variables for loop
@@ -206,7 +209,6 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     num_results = np.median(num_results[:idxShort]).astype(int)  # num_results[:idxShort][0]
 
     # make data frame for output
-
     smooth_depth_m = smooth_depth_m[:idxShort]
     reserved = reserved[:idxShort]
     start_mm = start_mm[:idxShort]

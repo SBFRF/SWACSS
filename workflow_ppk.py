@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import matplotlib
@@ -16,10 +17,39 @@ import glob
 import zipfile
 import tqdm
 from testbedutils import geoprocess
+import argparse, logging
 
+__version__ = 0.2
+def parse_args(__version__):
+    parser = argparse.ArgumentParser(f"PPK processing for yellowfin (V{__version__})", add_help=True)
+    # datadir, geoid, makePos = True, verbose = 1
+    # Command-Line Interface: (REQUIRED) Flags
+    parser.add_argument('-d', '--data_dir', type=str, metavar=True, help="directory to process",
+                        required=True)
+    # parser.add_argument('-t', '--target', type=str, nargs=2, metavar=("path", "label"), required=True,
+    #                     action='append', help="file path to target ground truth")
 
-def main(datadir, geoid, makePos=True, verbose=1):
-    # knobs:
+    # Command-Line Interface: (OPTIONAL) Flags
+    parser.add_argument('-g', '--geoid_file', type=str, default='ref/g2021bu0.bin', metavar='',
+                        help="binary geoid file")
+    parser.add_argument('-p', '--make_pos', type=bool, default=True,
+                        help="make posfile (True) or provide one through external environment (false)")
+    parser.add_argument('-v', '--verbosity', type=int, default=2, metavar='',
+                        help='sets verbosity for debug, 1=Debug (most), 2=Info (normal), 3=Warning (least)')
+    return parser.parse_args()
+
+def verbosity_conversion(verbose: int):
+    if verbose == 1:
+        logging.basicConfig(level=logging.DEBUG)
+    elif verbose == 2:
+        logging.basicConfig(level=logging.INFO)
+    elif verbose == 3:
+        logging.basicConfig(level=logging.WARN)
+    else:
+        raise EnvironmentError('logging verbosity is wrong!')
+def main(datadir, geoid, makePos=True, verbose=2):
+
+    verbosity_conversion(verbose)
     antenna_offset = 0.25  # meters between the antenna phase center and sounder head
     PPKqualityThreshold = 1
     smoothedSonarConfidence = 60
@@ -35,8 +65,9 @@ def main(datadir, geoid, makePos=True, verbose=1):
     timeString = os.path.basename(datadir)
     plotDir = os.path.join(datadir, 'figures')
     os.makedirs(plotDir, exist_ok=True)  # make folder structure if its not already made
-    argusGeotiff = yellowfinLib.threadGetArgusImagery(
-        DT.datetime.strptime(timeString, '%Y%m%d') + DT.timedelta(hours=14), ofName=os.path.join(plotDir, f'Argus_{timeString}'),)
+    argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
+                                                      DT.timedelta(hours=14),
+                                                      ofName=os.path.join(plotDir, f'Argus_{timeString}'),)
 
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
@@ -52,17 +83,17 @@ def main(datadir, geoid, makePos=True, verbose=1):
     fpathEmlid = os.path.join(datadir, 'emlidRaw')
     saveFnamePPK = os.path.join(datadir, f'{timeString}_ppkRaw.h5')
 
-    if verbose:
-        print(f"saving intermediate files for sonar here: {saveFnameSonar}")
-        print(f"saving intermediate files for sonar here: {saveFnamePPK}")
-        print(f"saving intermediate files for GNSS here: {saveFnameGNSS}")
+
+    logging.debug(f"saving intermediate files for sonar here: {saveFnameSonar}")
+    logging.debug(f"saving intermediate files for sonar here: {saveFnamePPK}")
+    logging.debug(f"saving intermediate files for GNSS here: {saveFnameGNSS}")
     ## load files
-    yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
+    # yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
 
     # then load NMEA files
-    yellowfinLib.load_yellowfin_NMEA_files(fpathGNSS, saveFname=saveFnameGNSS,
-                                           plotfname=os.path.join(plotDir, 'GPSpath_fromNMEAfiles.png'),
-                                           verbose=verbose)
+    # yellowfinLib.load_yellowfin_NMEA_files(fpathGNSS, saveFname=saveFnameGNSS,
+    #                                        plotfname=os.path.join(plotDir, 'GPSpath_fromNMEAfiles.png'),
+    #                                        verbose=verbose)
     if makePos == True:
         # find folders with raw rinex
         rinexZipFiles = glob.glob(os.path.join(fpathEmlid, '*RINEX*.zip'))
@@ -70,9 +101,9 @@ def main(datadir, geoid, makePos=True, verbose=1):
             baseZipFiles = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))[0]
             with zipfile.ZipFile(baseZipFiles, 'r') as zip_ref:
                 zip_ref.extractall(path=baseZipFiles[:-4])
-            baseFname = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*o'))[0]
-            navFile = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*n'))[0]
-            sp3fname = glob.glob(os.path.join(baseZipFiles.split('.')[0], '*sp3'))
+            baseFname = glob.glob(os.path.join(os.path.splitext(baseZipFiles)[0], '*o'))[0]
+            navFile = glob.glob(os.path.join(os.path.splitext(baseZipFiles)[0], '*n'))[0]
+            sp3fname = glob.glob(os.path.join(os.path.splitext(baseZipFiles)[0], '*sp3'))
             if len(sp3fname) > 0:
                 sp3fname = sp3fname[0]
             else:
@@ -97,7 +128,7 @@ def main(datadir, geoid, makePos=True, verbose=1):
     [fldrlistPPK.append(os.path.join(fpathEmlid, fname)) for fname in os.listdir(fpathEmlid) if
      'raw' in fname and '.zip' not in fname]
 
-    print('load PPK pos files ---- THESE ARE WGS84!!!!!!!!!!!!!!')
+    logging.info('load PPK pos files ---- THESE ARE WGS84!!!!!!!!!!!!!!')
     try:
         T_ppk = yellowfinLib.loadPPKdata(fldrlistPPK)
         T_ppk.to_hdf(saveFnamePPK, 'ppk')  # now save the h5 intermediate file
@@ -418,15 +449,9 @@ def main(datadir, geoid, makePos=True, verbose=1):
 
 if __name__ == "__main__":
     # filepath = '/data/yellowfin/20231109'  # 327'  # 04' #623' #705'
-    filepath = sys.argv[1]
-    assert os.path.isdir(filepath), "check your input filepath, code doesn't see the folder"
-    ## change things in this
-    # # establish data location paths to be used for the rest of the code base
-    if len(sys.argv)> 2:
-        geoidFileLoc = sys.argv[1]
-    else:
-        geoidFileLoc = r"ref/g2012bu0.bin"
-    makePos = True  # this makes a POS file from CORS data
-    verbose = 1  # level 2 is very detailed
-    main(filepath, geoid=geoidFileLoc, makePos=makePos, verbose=verbose)
-    print(f"success processing {filepath}")
+    args = parse_args(__version__)
+    assert os.path.isdir(args.data_dir), "check your input filepath, code doesn't see the folder"
+
+    main(args.data_dir, geoid=args.geoid_file, makePos=args.make_pos, verbose=args.verbosity)
+    print(f"success processing {args.data_dir}")
+
