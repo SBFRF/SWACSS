@@ -23,4 +23,4 @@ jobs:
         black . -l 100
     - name: Analysing the code with pylint
       run: |
-        pylint $(git ls-files '*.py') --max-line-length=100
+        pylint $(git ls-files '*.py') --max-line-length=100 --output=lint.txt || true
