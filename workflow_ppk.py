@@ -88,12 +88,12 @@ def main(datadir, geoid, makePos=True, verbose=2):
     logging.debug(f"saving intermediate files for sonar here: {saveFnamePPK}")
     logging.debug(f"saving intermediate files for GNSS here: {saveFnameGNSS}")
     ## load files
-    # yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
+    yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
 
     # then load NMEA files
-    # yellowfinLib.load_yellowfin_NMEA_files(fpathGNSS, saveFname=saveFnameGNSS,
-    #                                        plotfname=os.path.join(plotDir, 'GPSpath_fromNMEAfiles.png'),
-    #                                        verbose=verbose)
+    yellowfinLib.load_yellowfin_NMEA_files(fpathGNSS, saveFname=saveFnameGNSS,
+                                           plotfname=os.path.join(plotDir, 'GPSpath_fromNMEAfiles.png'),
+                                           verbose=verbose)
     if makePos == True:
         # find folders with raw rinex
         rinex_zip_files = glob.glob(os.path.join(fpathEmlid, '*RINEX*.zip'))
