@@ -1,4 +1,3 @@
-import logging
 import os
 import sys
 import matplotlib
@@ -30,13 +29,19 @@ def parse_args(__version__):
     #                     action='append', help="file path to target ground truth")
 
     # Command-Line Interface: (OPTIONAL) Flags
-    parser.add_argument('-g', '--geoid_file', type=str, default='ref/g2021bu0.bin', metavar='',
+    parser.add_argument('-g', '--geoid_file', type=str, default='ref/g2012bu0.bin', metavar='',
                         help="binary geoid file")
     parser.add_argument('-p', '--make_pos', type=bool, default=True,
                         help="make posfile (True) or provide one through external environment (false)")
     parser.add_argument('-v', '--verbosity', type=int, default=2, metavar='',
                         help='sets verbosity for debug, 1=Debug (most), 2=Info (normal), 3=Warning (least)')
+    parser.add_argument('--sonar_method', type=str, default='instant',
+                        help="which s500 depth reading to use for time-shifting and bottom reporting")
+    parser.add_argument('--rtklib_executable', type=str, default='ref/rnx2rtkp',
+                        help="which s500 depth reading to use for time-shifting and bottom reporting")
+
     return parser.parse_args()
+
 
 def verbosity_conversion(verbose: int):
     if verbose == 1:
@@ -47,17 +52,17 @@ def verbosity_conversion(verbose: int):
         logging.basicConfig(level=logging.WARN)
     else:
         raise EnvironmentError('logging verbosity is wrong!')
-def main(datadir, geoid, makePos=True, verbose=2):
+
+def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib_executable_path = 'ref/rnx2rtkp'):
 
     verbosity_conversion(verbose)
     antenna_offset = 0.25  # meters between the antenna phase center and sounder head
-    PPKqualityThreshold = 1
-    smoothedSonarConfidence = 60
-    instantSonarConfidence = 99
-    UTCthresh = DT.datetime(2023, 7,
-                            10)  # date that Pi computer was changed to UTC time (will adjust timezone manually before this date)
-    sonarMethod = 'instant'
-    RTKLibexecutablePath = 'ref/rnx2rtkp'
+    ppk_quality_threshold = 1
+    smoothed_sonar_confidence = 60
+    instant_sonar_confidence = 99
+    #  date that Pi computer was changed to UTC time (will adjust timezone manually before this date)
+    yellowfin_clock_reset_date = DT.datetime(2023, 7,10)  #
+
     ####################################################################################################################
 
     if datadir.endswith('/'): datadir = datadir[:-1]
@@ -67,7 +72,7 @@ def main(datadir, geoid, makePos=True, verbose=2):
     os.makedirs(plotDir, exist_ok=True)  # make folder structure if its not already made
     argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
                                                       DT.timedelta(hours=14),
-                                                      ofName=os.path.join(plotDir, f'Argus_{timeString}'),)
+                                                      ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),)
 
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
@@ -88,63 +93,86 @@ def main(datadir, geoid, makePos=True, verbose=2):
     logging.debug(f"saving intermediate files for sonar here: {saveFnamePPK}")
     logging.debug(f"saving intermediate files for GNSS here: {saveFnameGNSS}")
     ## load files
-    yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
-
+    if not os.path.isfile(saveFnameSonar):
+        yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
+    else:
+        logging.info(f'Skipping {saveFnameSonar}')
     # then load NMEA files
-    yellowfinLib.load_yellowfin_NMEA_files(fpathGNSS, saveFname=saveFnameGNSS,
+    if not os.path.isfile(saveFnameGNSS):  # if we've already processed the GNSS file
+        yellowfinLib.load_yellowfin_NMEA_files(fpathGNSS, saveFname=saveFnameGNSS,
                                            plotfname=os.path.join(plotDir, 'GPSpath_fromNMEAfiles.png'),
                                            verbose=verbose)
-    if makePos == True:
-        # find folders with raw rinex
-        rinex_zip_files = glob.glob(os.path.join(fpathEmlid, '*RINEX*.zip'))
-        try:  # we've got a zip file from CORS station
-            base_zip_files = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))[0]
-            with zipfile.ZipFile(base_zip_files, 'r') as zip_ref:
-                zip_ref.extractall(path=base_zip_files[:-4])
-            obs_fname = glob.glob(os.path.join(os.path.splitext(base_zip_files)[0], '*o'))[0]
-            nav_file = glob.glob(os.path.join(os.path.splitext(base_zip_files)[0], '*n'))[0]
-            sp3_fname = glob.glob(os.path.join(os.path.splitext(base_zip_files)[0], '*sp3'))
-            if len(sp3_fname) > 0:
-                sp3_fname = sp3_fname[0]
+    else:
+        logging.info(f'Skipping {saveFnameGNSS}')
+
+    if not os.path.isfile(saveFnamePPK):
+        if makePos == True:
+            # find folders with raw rinex
+            rover_rinex_zip_files = glob.glob(os.path.join(fpathEmlid, '*RINEX*.zip'))
+            # identify the nav/obs file
+            base_zip_files = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))
+
+            if np.size(base_zip_files) == 1: # if there's zip file it's from CORS
+                with zipfile.ZipFile(base_zip_files, 'r') as zip_ref:
+                    zip_ref.extractall(path=base_zip_files[:-4])
+                cors_search_path_obs = os.path.join(os.path.splitext(base_zip_files)[0], '*o')
+                cors_search_path_nav = os.path.join(os.path.splitext(base_zip_files)[0], '*n')
+                cors_search_path_sp3 = os.path.join(os.path.splitext(base_zip_files)[0], '*sp3')
+            elif np.size(base_zip_files) >1: # if there's more than one zip file
+                raise EnvironmentError('There are too many zip files in the CORS folder to extract')
+            else:
+                cors_search_path_obs = os.path.join(datadir, 'CORS', '.*o')
+                cors_search_path_nav = os.path.join(datadir, 'CORS', '.*n')
+                cors_search_path_sp3 = os.path.join(datadir, 'CORS', '.*sp3')
+
+            base_obs_fname = glob.glob(cors_search_path_obs)[0]
+            base_nav_file = glob.glob(cors_search_path_nav)[0]
+            base_sp3_list = glob.glob(cors_search_path_sp3)
+            if np.size(base_sp3_list) == 1:
+                sp3_fname = base_sp3_list[0]
             else:
                 sp3_fname = ''
-        except IndexError:  # we downloaded the observation files
-            raise NotImplementedError('Need to develope methods to use the raw observations not from CORS')
-        # unzip all the rinex Files
-        for ff in rinex_zip_files:
-            with zipfile.ZipFile(ff, 'r') as zip_ref:
-                zip_ref.extractall(path=ff[:-4])
-            # identify and process rinex to Pos files
-            flist_rinex = glob.glob(ff[:-4] + "/*")
-            roverFname = flist_rinex[np.argwhere([i.endswith('O') for i in flist_rinex]).squeeze()]
-            outfname = os.path.join(os.path.dirname(roverFname), os.path.basename(flist_rinex[0])[:-3] + "pos")
-            # use below if the rover nav file is the right call
-            yellowfinLib.makePOSfileFromRINEX(roverObservables=roverFname, baseObservables=obs_fname, navFile=nav_file,
-                                              outfname=outfname, executablePath=RTKLibexecutablePath, sp3=sp3_fname)
 
-    # Now find all the folders that have ppk data in them (*.pos files in folders that have "raw" in them)
-    # now identify the folders that have rinex in them
-    fldrlistPPK = []  # initalize list for appending RINEX folder in
-    [fldrlistPPK.append(os.path.join(fpathEmlid, fname)) for fname in os.listdir(fpathEmlid) if
-     'raw' in fname and '.zip' not in fname]
+            # unzip all the rinex Files
+            for ff in rover_rinex_zip_files:
+                with zipfile.ZipFile(ff, 'r') as zip_ref:
+                    zip_ref.extractall(path=ff[:-4])
+                # identify and process rinex to Pos files
+                flist_rinex = glob.glob(ff[:-4] + "/*")
+                roverFname = flist_rinex[np.argwhere([i.endswith('O') for i in flist_rinex]).squeeze()]
+                outfname = os.path.join(os.path.dirname(roverFname), os.path.basename(flist_rinex[0])[:-3] + "pos")
+                # use below if the rover nav file is the right call
+                yellowfinLib.makePOSfileFromRINEX(roverObservables=roverFname, baseObservables=base_obs_fname, navFile=base_nav_file,
+                                                  outfname=outfname, executablePath=rtklib_executable_path, sp3=sp3_fname)
 
-    logging.info('load PPK pos files ---- THESE ARE WGS84!!!!!!!!!!!!!!')
-    try:
-        T_ppk = yellowfinLib.loadPPKdata(fldrlistPPK)
-        T_ppk.to_hdf(saveFnamePPK, 'ppk')  # now save the h5 intermediate file
-    except KeyError:
-        raise FileExistsError("the pos file hasn't been loaded, manually produce or turn on RTKlib processing")
+        # Now find all the folders that have ppk data in them (*.pos files in folders that have "raw" in them)
+        # now identify the folders that have rinex in them
+        fldrlistPPK = []  # initalize list for appending RINEX folder in
+        [fldrlistPPK.append(os.path.join(fpathEmlid, fname)) for fname in os.listdir(fpathEmlid) if
+         'raw' in fname and '.zip' not in fname]
+
+        logging.warning('load PPK pos files ---- THESE ARE WGS84!!!!!!!!!!!!!!')
+        try:
+            T_ppk = yellowfinLib.loadPPKdata(fldrlistPPK)
+            T_ppk.to_hdf(saveFnamePPK, 'ppk')  # now save the h5 intermediate file
+        except KeyError:
+            raise FileExistsError("the pos file hasn't been loaded, manually produce or turn on RTKlib processing")
+    else:
+        logging.info(f'Skipping {saveFnamePPK}')
+        T_ppk = pd.read_hdf(saveFnamePPK)
+
     # 1. time in seconds to adjust to UTC from ET (varies depending on time of year!!!)
-    if (T_ppk['datetime'].iloc[0].replace(tzinfo=None) < UTCthresh) & (
+    if (T_ppk['datetime'].iloc[0].replace(tzinfo=None) < yellowfin_clock_reset_date) & (
             int(T_ppk['datetime'].iloc[0].day_of_year) > 71) & (int(T_ppk['datetime'].iloc[0].day_of_year) < 309):
         ET2UTC = 5 * 60 * 60
-    elif (T_ppk['datetime'].iloc[0].replace(tzinfo=None) < UTCthresh) & (
+        logging.warning(" I'm using a 'dumb' conversion from ET to UTC")
+    elif (T_ppk['datetime'].iloc[0].replace(tzinfo=None) < yellowfin_clock_reset_date) & (
             int(T_ppk['datetime'].iloc[0].day_of_year) < 71) & (int(T_ppk['datetime'].iloc[0].day_of_year) > 309):
         ET2UTC = 4 * 60 * 60
+        logging.warning(" I'm using a 'dumb' conversion from ET to UTC")
     else:
         ET2UTC = 0  # time's already in UTC
-    if ET2UTC > 0:
-        print(" I'm using a 'dumb' conversion from ET to UTC")
+
 
     # 6.2: load all files we created in previous steps
     sonarData = yellowfinLib.load_h5_to_dictionary(saveFnameSonar)
@@ -154,6 +182,7 @@ def main(datadir, geoid, makePos=True, verbose=2):
     # Adjust GNSS time by the Leap Seconds https://www.cnmoc.usff.navy.mil/Our-Commands/United-States-Naval-Observatory/Precise-Time-Department/Global-Positioning-System/USNO-GPS-Time-Transfer/Leap-Seconds/
     # T_ppk['epochTime'] = T_ppk['epochTime'] - 18  # 18 is leap second adjustment
     # T_ppk['datetime'] = T_ppk['datetime'] - DT.timedelta(seconds=18)  # making sure both are equal
+    # commented because the cross-correlation should account for this anyway (?)
 
     # convert raw ellipsoid values from satellite measurement to that of a vertical datum.  This uses NAVD88 [m] NAD83
     T_ppk['GNSS_elevation_NAVD88'] = yellowfinLib.convertEllipsoid2NAVD88(T_ppk['lat'], T_ppk['lon'], T_ppk['height'],
@@ -163,22 +192,28 @@ def main(datadir, geoid, makePos=True, verbose=2):
 
     # Compare GPS data to make sure timing is ok
     plt.figure()
-    plt.plot(pc_time_off, '.')
-    plt.title('time offset between pc time and GPS time')
-    plt.xlabel('PC time')
-    plt.ylabel('PC time - GGA string time (+leap seconds)')
+    plt.suptitle('time offset between pc time and GPS time')
+    ax1 = plt.subplot(121)
+    ax1.plot(pc_time_off, '.')
+    ax1.set_xlabel('PC time')
+    ax1.set_ylabel('PC time - GGA string time (+leap seconds)')
+    ax2 = plt.subplot(122)
+    ax2.hist(pc_time_off, bins=50)
+    ax2.set_xlabel('diff time')
+    plt.tight_layout()
     plt.savefig(os.path.join(plotDir, 'clockOffset.png'))
     print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
+    plt.close()
 
     # 6.4 Use the cerulean instantaneous bed detection since not sure about delay with smoothed
     # adjust time of the sonar time stamp with timezone shift (ET -> UTC) and the timeshift between the computer and GPS
     sonarData['time'] = sonarData['time'] + ET2UTC - np.median(pc_time_off)  # convert to UTC
-    if sonarMethod == 'smooth':
+    if sonar_method == 'smooth':
         sonar_range = sonarData['smooth_depth_m']
-        qualityLogic = sonarData['smoothed_depth_measurement_confidence'] > smoothedSonarConfidence
-    elif sonarMethod == 'instant':
+        qualityLogic = sonarData['smoothed_depth_measurement_confidence'] > smoothed_sonar_confidence
+    elif sonar_method == 'instant':
         sonar_range = sonarData['this_ping_depth_m']
-        qualityLogic = sonarData['this_ping_depth_measurement_confidence'] > instantSonarConfidence
+        qualityLogic = sonarData['this_ping_depth_measurement_confidence'] > instant_sonar_confidence
     else:
         raise ValueError('acceptable sonar methods include ["instant", "smooth"]')
     # use the above to adjust whether you want smoothed/filtered data or raw ping depth values
@@ -218,7 +253,7 @@ def main(datadir, geoid, makePos=True, verbose=2):
     # 6.7 # plot sonar, select indices of interest, and then second subplot is time of interest
     plt.figure(figsize=(10, 4))
     plt.subplot(211)
-    plt.title('all data, select start/end point for measured depths')
+    plt.title('all data: select start/end point for measured depths to do time-syncing over ')
     plt.plot(sonar_range)
     plt.ylim([0, 10])
     d = plt.ginput(2, timeout=-999)
@@ -227,7 +262,7 @@ def main(datadir, geoid, makePos=True, verbose=2):
     assert len(d) == 2, "need 2 points from mouse clicks"
     sonarIndicies = np.arange(np.floor(d[0][0]).astype(int), np.ceil(d[1][0]).astype(int))
     plt.plot(sonar_range[sonarIndicies])
-    plt.title('my selected data to proceed with')
+    plt.title('my selected data to proceed with cross-correlation/time syncing')
     plt.tight_layout()
 
     plt.savefig(os.path.join(plotDir, 'subsetForCrossCorrelation.png'))
@@ -292,8 +327,8 @@ def main(datadir, geoid, makePos=True, verbose=2):
     print("here's where some better filtering could be done, probably worth saving an intermediate product here "
           "for future revisit")
 
-    print(f"for now we're only saving/logging values that have a GNSS fix quality of {PPKqualityThreshold} and a "
-          f"sonar confidence > {smoothedSonarConfidence}")
+    print(f"for now we're only saving/logging values that have a GNSS fix quality of {ppk_quality_threshold} and a "
+          f"sonar confidence > {smoothed_sonar_confidence}")
 
     # now put relevant GNSS and sonar on output timestamps
     # initalize out variables
@@ -322,7 +357,7 @@ def main(datadir, geoid, makePos=True, verbose=2):
         # if we have both, then we log the data
         if idxTimeMatchGNSS is not None and idxTimeMatchSonar is not None:  # we have matching data
             # now apply it
-            if T_ppk['Q'][idxTimeMatchGNSS] <= PPKqualityThreshold and qualityLogic[idxTimeMatchSonar]:
+            if T_ppk['Q'][idxTimeMatchGNSS] <= ppk_quality_threshold and qualityLogic[idxTimeMatchSonar]:
                 # log matching data that meets quality metrics
                 sonar_smooth_depth_out[tidx] = sonarData['smooth_depth_m'][idxTimeMatchSonar]
                 sonar_instant_depth_out[tidx] = sonarData['this_ping_depth_m'][idxTimeMatchSonar]
@@ -336,12 +371,12 @@ def main(datadir, geoid, makePos=True, verbose=2):
                 gnss_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS]
                 fix_quality[tidx] = T_ppk['Q'][idxTimeMatchGNSS]
                 # now log elevation outs depending on which sonar i want to log
-                if sonarMethod == 'smooth':
+                if sonar_method == 'smooth':
                     elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
                                           sonarData['smooth_depth_m'][idxTimeMatchSonar]
                     sonar_out[tidx] = sonarData['smooth_depth_m'][idxTimeMatchSonar]
 
-                elif sonarMethod == 'instant':
+                elif sonar_method == 'instant':
                     elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
                                           sonarData['this_ping_depth_m'][idxTimeMatchSonar]
                     sonar_out[tidx] = sonarData['this_ping_depth_m'][idxTimeMatchSonar]
@@ -349,7 +384,7 @@ def main(datadir, geoid, makePos=True, verbose=2):
                     raise ValueError('acceptable sonar methods include ["instant", "smooth"]')
 
             # now log bad locations for quality plotting
-            if T_ppk['Q'][idxTimeMatchGNSS] <= PPKqualityThreshold and not qualityLogic[idxTimeMatchSonar]:
+            if T_ppk['Q'][idxTimeMatchGNSS] <= ppk_quality_threshold and not qualityLogic[idxTimeMatchSonar]:
                 bad_lat_out[tidx] = T_ppk['lat'][idxTimeMatchGNSS]
                 bad_lon_out[tidx] = T_ppk['lon'][idxTimeMatchGNSS]
     # identify data that are not nan's to save
@@ -452,6 +487,7 @@ if __name__ == "__main__":
     args = parse_args(__version__)
     assert os.path.isdir(args.data_dir), "check your input filepath, code doesn't see the folder"
 
-    main(args.data_dir, geoid=args.geoid_file, makePos=args.make_pos, verbose=args.verbosity)
+    main(args.data_dir, geoid=args.geoid_file, makePos=args.make_pos, verbose=args.verbosity,
+         rtklib_executable_path=args.rtklib_executable, sonar_method=args.sonar_method)
     print(f"success processing {args.data_dir}")
 

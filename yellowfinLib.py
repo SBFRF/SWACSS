@@ -359,7 +359,7 @@ def makePOSfileFromRINEX(
     sp3 = kwargs.get("sp3", "")
     freq = kwargs.get("freq", 3)
 
-    print(
+    logging.debug(
         f"converting {os.path.basename(roverObservables)} using RTKLIB: Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp"
     )
     os.system(
@@ -459,15 +459,21 @@ def convertEllipsoid2NAVD88(lats, lons, ellipsoids, geoidFile="g2012bu8.bin"):
     return ellipsoids - geoidHeight
 
 
-def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
+def load_yellowfin_NMEA_files(fpath:str, saveFname: str, plotfname: str = False, verbose: int=0) -> None:
     """loads and possibly plots NMEA data from Emlid Reach M2 on yellowin
 
     :param fpath: location to search for NMEA data files
     :param saveFname: where to save the Hdf5 file
     :param plotfname: where to save plot showing path of yellowfin, if False, will not plot (default=False)
-    :param verbose: will print more output when processing if True (default=False)
+    :param verbose: will print more output when processing if True (default=0), 0-warn, 1-info, 2-debug
     :return:
     """
+    level=logging.WARN
+    if verbose == 1:
+        level=logging.INFO
+    elif verbose == 2:
+        level=logging.DEBUG
+    logging.basicConfig(level=level)
     flist = glob.glob(os.path.join(fpath, "*.dat"))
     dd = sorted(
         [flist[os.path.getsize(i) > 0] for i in flist]
@@ -488,8 +494,9 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
             dd = glob.glob(os.path.join(fpath, "*.dat"))
         except:
             raise EnvironmentError("The GNSS data date doesn't match folder date")
-    if verbose == 1:
-        print(f"processing {len(dd)} GPS data files")
+
+    logging.info(f"processing {len(dd)} GPS data files")
+
 
     ji = 0
     gps_time, lat, lon, altWGS84, altMSL, pc_time_gga = [], [], [], [], [], []
@@ -498,9 +505,7 @@ def load_yellowfin_NMEA_files(fpath, saveFname, plotfname=False, verbose=False):
     for fi in tqdm.tqdm(range(1, len(dd))):
         fname = dd[fi]
 
-        if verbose == 2:
-            print(fname)
-
+        logging.debug(f" loading: {fname}")
         with open(fname, "r") as f:
             lns = f.readlines()
 
@@ -685,44 +690,41 @@ def loadPPKdata(fldrlistPPK):
     for fldr in sorted(fldrlistPPK):
         # this is before ppk processing so should agree with nmea strings
         # fn = glob.glob(os.path.join(fldr, "*.pos"))
-        # assert len(fn) > 1, " This function assumes only one pos file per folder, please check"
-        fn = os.path.join(
-            fldr, os.path.basename(fldr).split("_R")[0] + ".pos"
-        )  # fn[np.argwhere(['events' not in f for f in fn]).squeeze()]  # take the file that is not events
+        fn = os.path.join(fldr, os.path.basename(fldr).split("_R")[0] + ".pos")
         try:
-            colNames = [
-                "datetime",
-                "lat",
-                "lon",
-                "height",
-                "Q",
-                "ns",
-                "sdn(m)",
-                "sde(m)",
-                "sdu(m)",
-                "sdne(m)",
-                "sdeu(m)",
-                "sdun(m)",
-                "age(s)",
-                "ratio",
-            ]
-            try:
-                Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine="python")
-            except ValueError:
-                Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine="python")
-            print(f"loaded {fn}")
+            # colNames = [
+            #     "datetime",
+            #     "lat",
+            #     "lon",
+            #     "height",
+            #     "Q",
+            #     "ns",
+            #     "sdn(m)",
+            #     "sde(m)",
+            #     "sdu(m)",
+            #     "sdne(m)",
+            #     "sdeu(m)",
+            #     "sdun(m)",
+            #     "age(s)",
+            #     "ratio",
+            # ]
+            # col_widths=[(0,23), (26, 39), (40, 55), (56, 65), (66, 68), (70, 73)]
+            # try:
+            #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine="python")
+            # except ValueError:
+            #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine="python")
+            colNames = ["date", "time", "lat", "lon", "height", "Q", "ns", "sdn(m)", "sde(m)", "sdu(m)", "sdne(m)",
+                 "sdeu(m)", "sdun(m)", "age(s)", "ratio"]
+            Tpos = pd.read_fwf(fn, skiprows=12, infer_nrows=1000, names=colNames) # fixed width reader
+            logging.info(f"loaded {fn}")
             if all(Tpos.iloc[-1]):  # if theres nan's in the last row
                 Tpos = Tpos.iloc[:-1]  # remove last row
-            Tpos["datetime"] = pd.to_datetime(
-                Tpos["datetime"], format="%Y/%m/%d %H:%M:%S.%f", utc=True
-            )
-            T_ppk = pd.concat(
-                [T_ppk, Tpos], ignore_index=True
-            )  # merge multiple files to single dataframe
+            # Tpos["datetime"] = pd.to_datetime(Tpos['date'] + Tpos['time'], format="%Y/%m/%d%H:%M:%S.%f", utc=True)
+            T_ppk = pd.concat([T_ppk, Tpos], ignore_index=True) # merge multiple files to single dataframe
 
         except:  # this is in the event there is no data in the pos files
             continue
-    T_ppk["datetime"] = pd.to_datetime(T_ppk["datetime"], format="%Y/%m/%d %H:%M:%S.%f", utc=True)
+    T_ppk["datetime"] = pd.to_datetime(Tpos['date'] + Tpos['time'], format="%Y/%m/%d%H:%M:%S.%f", utc=True)
     T_ppk["epochTime"] = T_ppk["datetime"].apply(lambda x: x.timestamp())
     return T_ppk
 
@@ -790,20 +792,21 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
 
 
 def getArgusImagery(dateOfInterest, ofName=None, imageType="timex", verbose=True):
+    if verbose: logging.basicConfig(level=logging.INFO)
     # client = Minio("coastalimaging.erdc.dren.mil")
     # ## now lets find what files are around
     # objects = client.list_objects('FrfTower', prefix="Processed/alignedObliques/c1", recursive=True,)
     baseURL = "https://coastalimaging.erdc.dren.mil/FrfTower/Processed/Orthophotos/cxgeo/"
     fldr = dateOfInterest.strftime("%Y_%m_%d")
     fname = f'{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.FrfTower.cxgeo.{imageType}.tif'
-    if verbose:
-        print(f"retreiving {baseURL + fldr + fname}")
+
+    logging.info(f"retreiving {baseURL + fldr + fname}")
     wgetURL = os.path.join(baseURL, fldr, fname)
     if ofName is None:
         ofName = os.path.join(os.getcwd(), os.path.basename(wgetURL))
     wget.download(wgetURL, ofName)
-    if verbose:
-        print(f"retrieved {ofName}")
+
+    logging.debug(f"retrieved {ofName}")
     return ofName
 
 
