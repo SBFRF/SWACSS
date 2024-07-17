@@ -519,9 +519,9 @@ def load_yellowfin_NMEA_files(fpath:str, saveFname: str, plotfname: str = False,
                     continue
 
                 try:
-                    dt = DT.datetime.strptime(datestring, "%Y-%m-%d %H:%M:%S.%f")  # valueError
+                    dt = DT.datetime.strptime(datestring.strip(), "%Y-%m-%d %H:%M:%S.%f")  # valueError
                 except ValueError:
-                    dt = DT.datetime.strptime(datestring, "%Y-%m-%d %H:%M:%S")  # valueError
+                    dt = DT.datetime.strptime(datestring.strip(), "%Y-%m-%d %H:%M:%S")  # valueError
                 nmcode = stringNMEA[0]
 
                 if nmcode == "GNGGA" and len(stringNMEA[2]) > 1:
