@@ -124,7 +124,7 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
 
     # https://docs.ceruleansonar.com/c/v/s-500-sounder/appendix-f-programming-api
     ij, i3 = 0, 0
-    allocateSize = 25000  # some ridiculously large number that memory can still hold.
+    allocateSize = 45000  # some ridiculously large number that memory can still hold.
     # initialize variables for loop
     distance, confidence, transmit_duration = (
         np.zeros(allocateSize),
