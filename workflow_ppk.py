@@ -113,6 +113,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
             base_zip_files = glob.glob(os.path.join(datadir, 'CORS', '*.zip'))
 
             if np.size(base_zip_files) == 1: # if there's zip file it's from CORS
+                base_zip_files = base_zip_files[0]
                 with zipfile.ZipFile(base_zip_files, 'r') as zip_ref:
                     zip_ref.extractall(path=base_zip_files[:-4])
                 cors_search_path_obs = os.path.join(os.path.splitext(base_zip_files)[0], '*o')
