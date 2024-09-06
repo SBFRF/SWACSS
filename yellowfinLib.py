@@ -112,6 +112,8 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
                     f"{parts_interst[-1] + parts_interst[0] + parts_interst[1]}*.dat",
                 )
             )
+            if len(flist) < 1:  # this is the new file name (file name updated late August 2024)
+                flist = glob.glob(os.path.join(dataPath, fldInterest, ''.join(parts_interst)+'*.dat'))
             toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
             [shutil.move(l, toDir) for l in flist]
             # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
@@ -804,7 +806,10 @@ def getArgusImagery(dateOfInterest, ofName=None, imageType="timex", verbose=True
     wgetURL = os.path.join(baseURL, fldr, fname)
     if ofName is None:
         ofName = os.path.join(os.getcwd(), os.path.basename(wgetURL))
-    wget.download(wgetURL, ofName)
+    try:
+        wget.download(wgetURL, ofName)
+    except:
+        pass
 
     logging.debug(f"retrieved {ofName}")
     return ofName
