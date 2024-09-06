@@ -490,6 +490,9 @@ def load_yellowfin_NMEA_files(fpath:str, saveFname: str, plotfname: str = False,
                     f"{fldInterest.split('-')[-1] + fldInterest.split('-')[0] + fldInterest.split('-')[1]}*.dat",
                 )
             )
+            if len(flist) < 1:  # to accomodate the august 2024 filename convention change
+                flist = glob.glob(os.path.join(fpath, fldInterest, ''.join(fldInterest.split('-'))+"*.dat"))
+
             toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
             [shutil.move(l, toDir) for l in flist]
             # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
