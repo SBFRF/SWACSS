@@ -470,6 +470,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
         hf.create_dataset('latitude', data=lat_out[idxDataToSave])
         hf.create_dataset('elevation', data=elevation_out[idxDataToSave])
         hf.create_dataset('fix_quality_GNSS', data=fix_quality[idxDataToSave])
+        hf.create_dataset('gnss_elevation_navd_m', data=gnss_out)
         hf.create_dataset('sonar_smooth_depth', data=sonar_smooth_depth_out[idxDataToSave])
         hf.create_dataset('sonar_smooth_confidence', data=sonar_smooth_confidence_out[idxDataToSave])
         hf.create_dataset('sonar_instant_depth', data=sonar_instant_depth_out[idxDataToSave])
