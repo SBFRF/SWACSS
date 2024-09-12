@@ -269,7 +269,8 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
                                                                           sampleFreq=np.median(np.diff(commonTime)))
 
     ofname = os.path.join(plotDir, 'subsetAfterCrossCorrelation.png')
-    yellowfinLib.qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime)
+    yellowfinLib.qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i,
+                                            phaseLaginTime, sonarData, sonarIndicies, sonar_range)
 
     print(f"sonar data adjusted by {phaseLaginTime:.3f} seconds")
 
@@ -381,13 +382,13 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         ofname = os.path.join(plotDir, 'singleProfile.png')
         yellowfinLib.plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave)
 
-    data['UNIX_timestamp'] = data['time']
-    data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir)
+        data['UNIX_timestamp'] = data['time']
+        data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir) # bombs out on non-frf data
+        data['Profile_number'] = data.pop('profileNumber')
+        data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
 
     ## now make netCDF files
     ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')
-    data['Profile_number'] = data.pop('profileNumber')
-    data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
     py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
                              varYaml='yamlFile/transect_variables.yml', data=data)
 
@@ -410,7 +411,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         if FRF is True:
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
-        hf.create_dataset('Profile_number', data=data['Profile_number'])
+            hf.create_dataset('Profile_number', data=data['Profile_number'])
 
 
 if __name__ == "__main__":

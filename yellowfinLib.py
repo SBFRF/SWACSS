@@ -18,7 +18,7 @@ import wget
 from matplotlib import pyplot as plt
 from rasterio import plot as rplt
 from testbedutils import geoprocess
-
+from scipy import signal
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
     """read and parse multiple pos files in multiple folders provided
@@ -1151,7 +1151,8 @@ def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out,
         plt.legend()
         plt.savefig(ofname)
 
-def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime ):
+def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime,
+                               sonarData, sonarIndicies, sonar_range):
     # TODO pull this figure out to a function
     plt.figure(figsize=(16, 8))
     ax1 = plt.subplot(311)
