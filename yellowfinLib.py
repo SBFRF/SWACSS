@@ -1129,7 +1129,7 @@ def plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_de
         plt.tight_layout()
         plt.savefig(ofname)
 
-def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, FRF):
+def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, lat_out, lon_out, timeString, idxDataToSave, FRF):
         fs = 16
         # make a final plot of all the processed data
         pierStart = geoprocess.FRFcoord(0, 515, coordType='FRF')
@@ -1151,5 +1151,96 @@ def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out,
         plt.legend()
         plt.savefig(ofname)
 
+def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime ):
+    # TODO pull this figure out to a function
+    plt.figure(figsize=(16, 8))
+    ax1 = plt.subplot(311)
+    plt.plot(T_ppk['epochTime'][indsPPK], T_ppk['GNSS_elevation_NAVD88'][indsPPK], label='ppk elevation NAVD88 m')
+    plt.plot(sonarData['time'][sonarIndicies], sonar_range[sonarIndicies], label='sonar_raw')
+    plt.legend()
+
+    plt.subplot(312, sharex=ax1)
+    plt.title(f"sonar data needs to be adjusted by {phaseLaginTime} seconds")
+    plt.plot(commonTime, signal.detrend(ppkHeight_i), label='ppk input')
+    plt.plot(commonTime, signal.detrend(sonar_range_i), label='sonar input')
+    plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i), '.', label='interp _sonar shifted')
+    plt.legend()
+
+    plt.subplot(313, sharex=ax1)
+    plt.title('shifted residual between sonar and GNSS (should be 0)')
+    plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i) - signal.detrend(ppkHeight_i), '.',
+             label='residual')
+    plt.ylim([-1, 1])
+    plt.tight_layout()
+    plt.show()
+    plt.savefig(ofname)
+
 def is_local_to_FRF(coords):
     return ((coords['yFRF'] < 2000) & (coords['yFRF'] > -20000)).all()
+
+def qaqc_time_offset_determination(ofname, pc_time_off):
+        # Compare GPS data to make sure timing is ok
+        plt.figure()
+        plt.suptitle('time offset between pc time and GPS time')
+        ax1 = plt.subplot(121)
+        ax1.plot(pc_time_off, '.')
+        ax1.set_xlabel('PC time')
+        ax1.set_ylabel('PC time - GGA string time (+leap seconds)')
+        ax2 = plt.subplot(122)
+        ax2.hist(pc_time_off, bins=50)
+        ax2.set_xlabel('diff time')
+        plt.tight_layout()
+        plt.savefig(ofname)
+        print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
+        plt.close()
+
+def sonar_pick_cross_correlation_time(ofname, sonar_range):
+    plt.figure(figsize=(10, 4))
+    plt.subplot(211)
+    plt.title('all data: select start/end point for measured depths to do time-syncing over ')
+    plt.plot(sonar_range)
+    plt.ylim([0, 10])
+    d = plt.ginput(2, timeout=-999)
+    plt.subplot(212)
+    # Now pull corresponding indices for sonar data for same time
+    assert len(d) == 2, "need 2 points from mouse clicks"
+    sonarIndicies = np.arange(np.floor(d[0][0]).astype(int), np.ceil(d[1][0]).astype(int))
+    plt.plot(sonar_range[sonarIndicies])
+    plt.title('my selected data to proceed with cross-correlation/time syncing')
+    plt.tight_layout()
+    plt.savefig(ofname)
+    return sonarIndicies
+
+def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk):
+    # 6.6 Now lets take a look at all of our data from the different sources
+    plt.figure(figsize=(10, 4))
+    plt.suptitle('all data sources elevation', fontsize=20)
+    plt.title('These data need to overlap in time for processing to work')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
+             label='L1 (only) GPS elev (MSL)')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
+             label='ppk elevation [NAVD88 m]')
+    plt.ylim([0, 10])
+    plt.ylabel('elevation [m]')
+    plt.xlabel('epoch time (s)')
+    plt.legend()
+    # plt.show()
+    plt.savefig(ofname)
+
+def qaqc_sonar_profiles(ofname, sonarData):
+
+    plt.figure(figsize=(18, 6))
+    cm = plt.pcolormesh([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['range_m'],
+                        sonarData['profile_data'])
+    cbar = plt.colorbar(cm)
+    cbar.set_label('backscatter')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=0.1,
+             label='this ping Depth')
+    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=0.5,
+             label='smooth Depth')
+    plt.ylim([10, 0])
+    plt.legend(loc='lower left')
+    # plt.gca().invert_yaxis()
+    plt.tight_layout(rect=[0.05, 0.05, 0.99, 0.99], w_pad=0.01, h_pad=0.01)
+    plt.savefig(ofname)

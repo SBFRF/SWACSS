@@ -217,22 +217,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
 
     ofname = os.path.join(plotDir, 'clockOffset.png')
     # TODO pull this figure out to a function
-    def qaqc_time_offset_determination(ofname, pc_time_off):
-        # Compare GPS data to make sure timing is ok
-        plt.figure()
-        plt.suptitle('time offset between pc time and GPS time')
-        ax1 = plt.subplot(121)
-        ax1.plot(pc_time_off, '.')
-        ax1.set_xlabel('PC time')
-        ax1.set_ylabel('PC time - GGA string time (+leap seconds)')
-        ax2 = plt.subplot(122)
-        ax2.hist(pc_time_off, bins=50)
-        ax2.set_xlabel('diff time')
-        plt.tight_layout()
-        plt.savefig(ofname)
-        print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
-        plt.close()
-    qaqc_time_offset_determination(ofname, pc_time_off)
+    yellowfinLib.qaqc_time_offset_determination(ofname, pc_time_off)
     # 6.4 Use the cerulean instantaneous bed detection since not sure about delay with smoothed
     # adjust time of the sonar time stamp with timezone shift (ET -> UTC) and the timeshift between the computer and GPS
     sonarData['time'] = sonarData['time'] + ET2UTC - np.median(pc_time_off)  # convert to UTC
@@ -250,63 +235,17 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     # use the above to adjust whether you want smoothed/filtered data or raw ping depth values
 
     ofname = os.path.join(plotDir, 'SonarBackScatter.png')
-    def qaqc_sonar_profiles(ofname, sonarData):
-        # 6.5 now plot sonar with time
-        plt.figure(figsize=(18, 6))
-        cm = plt.pcolormesh([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['range_m'],
-                            sonarData['profile_data'])
-        cbar = plt.colorbar(cm)
-        cbar.set_label('backscatter')
-        plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=0.1,
-                 label='this ping Depth')
-        plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=0.5,
-                 label='smooth Depth')
-        plt.ylim([10, 0])
-        plt.legend(loc='lower left')
-        # plt.gca().invert_yaxis()
-        plt.tight_layout(rect=[0.05, 0.05, 0.99, 0.99], w_pad=0.01, h_pad=0.01)
-        plt.savefig(ofname)
-    qaqc_sonar_profiles(ofname, sonarData)
+    # 6.5 now plot sonar with time
+    yellowfinLib.qaqc_sonar_profiles(ofname, sonarData)
     ofname = os.path.join(plotDir, 'AllData.png')
-    def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk):
-        # 6.6 Now lets take a look at all of our data from the different sources
-        plt.figure(figsize=(10, 4))
-        plt.suptitle('all data sources elevation', fontsize=20)
-        plt.title('These data need to overlap in time for processing to work')
-        plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
-        plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
-                 label='L1 (only) GPS elev (MSL)')
-        plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
-                 label='ppk elevation [NAVD88 m]')
-        plt.ylim([0, 10])
-        plt.ylabel('elevation [m]')
-        plt.xlabel('epoch time (s)')
-        plt.legend()
-        # plt.show()
-        plt.savefig(ofname)
-    qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk)
+
+    yellowfinLib.qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk)
 
 
     ofname = os.path.join(plotDir, 'subsetForCrossCorrelation.png')
-    def sonar_pick_cross_correlation_time(ofname, sonar_range):
-        plt.figure(figsize=(10, 4))
-        plt.subplot(211)
-        plt.title('all data: select start/end point for measured depths to do time-syncing over ')
-        plt.plot(sonar_range)
-        plt.ylim([0, 10])
-        d = plt.ginput(2, timeout=-999)
-        plt.subplot(212)
-        # Now pull corresponding indices for sonar data for same time
-        assert len(d) == 2, "need 2 points from mouse clicks"
-        sonarIndicies = np.arange(np.floor(d[0][0]).astype(int), np.ceil(d[1][0]).astype(int))
-        plt.plot(sonar_range[sonarIndicies])
-        plt.title('my selected data to proceed with cross-correlation/time syncing')
-        plt.tight_layout()
-        plt.savefig(ofname)
-        return sonarIndicies
 
     # 6.7 # plot sonar, select indices of interest, and then second subplot is time of interest
-    sonarIndicies = sonar_pick_cross_correlation_time(ofname, sonar_range)
+    sonarIndicies = yellowfinLib.sonar_pick_cross_correlation_time(ofname, sonar_range)
     # now identify corresponding times from ppk GPS to those times of sonar that we're interested in
     indsPPK = np.where((T_ppk['epochTime'] >= sonarData['time'][sonarIndicies[0]]) & (
             T_ppk['epochTime'] <= sonarData['time'][sonarIndicies[-1]]))[0]
@@ -330,30 +269,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
                                                                           sampleFreq=np.median(np.diff(commonTime)))
 
     ofname = os.path.join(plotDir, 'subsetAfterCrossCorrelation.png')
-    def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime ):
-        # TODO pull this figure out to a function
-        plt.figure(figsize=(16, 8))
-        ax1 = plt.subplot(311)
-        plt.plot(T_ppk['epochTime'][indsPPK], T_ppk['GNSS_elevation_NAVD88'][indsPPK], label='ppk elevation NAVD88 m')
-        plt.plot(sonarData['time'][sonarIndicies], sonar_range[sonarIndicies], label='sonar_raw')
-        plt.legend()
-
-        plt.subplot(312, sharex=ax1)
-        plt.title(f"sonar data needs to be adjusted by {phaseLaginTime} seconds")
-        plt.plot(commonTime, signal.detrend(ppkHeight_i), label='ppk input')
-        plt.plot(commonTime, signal.detrend(sonar_range_i), label='sonar input')
-        plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i), '.', label='interp _sonar shifted')
-        plt.legend()
-
-        plt.subplot(313, sharex=ax1)
-        plt.title('shifted residual between sonar and GNSS (should be 0)')
-        plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i) - signal.detrend(ppkHeight_i), '.',
-                 label='residual')
-        plt.ylim([-1, 1])
-        plt.tight_layout()
-        plt.show()
-        plt.savefig(ofname)
-    qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime)
+    yellowfinLib.qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime)
 
     print(f"sonar data adjusted by {phaseLaginTime:.3f} seconds")
 
@@ -386,7 +302,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     elevation_out, fix_quality = np.zeros_like(time_out) * np.nan, np.zeros_like(time_out) * np.nan
     gnss_out, sonar_out = np.zeros_like(bad_lat_out) * np.nan, np.zeros_like(time_out) * np.nan
     # loop through my common time (.1 s increment) and find associated sonar and gnss values; this might be slow
-    for tidx, tt in tqdm.tqdm(enumerate(time_out)):
+    for tidx, tt in tqdm.tqdm(enumerate(time_out), desc="Filter & Time Match"):
         idxTimeMatchGNSS, idxTimeMatchGNSS = None, None
 
         # first find if there is a time match for sonar
@@ -444,9 +360,10 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
 
     FRF = yellowfinLib.is_local_to_FRF(coords)
     if not FRF:
-        logging.log("identified data as NOT Local to the FRF")
+        logging.info("identified data as NOT Local to the FRF")
     ofname = os.path.join(plotDir, 'FinalDataProduct.png')
-    yellowfinLib.plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, FRF)
+    yellowfinLib.plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, lon_out,
+                                       lat_out, timeString, idxDataToSave, FRF)
 
 
     #now make data packat to save
@@ -490,7 +407,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         hf.create_dataset('sonar_backscatter_out', data=sonar_backscatter_out[idxDataToSave])
         hf.create_dataset('bad_lat', data=bad_lat_out)
         hf.create_dataset('bad_lon', data=bad_lon_out)
-        if FRF is not False:
+        if FRF is True:
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
         hf.create_dataset('Profile_number', data=data['Profile_number'])
