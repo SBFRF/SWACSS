@@ -35,11 +35,20 @@ def parse_args(__version__):
                         help="make posfile (True) or provide one through external environment (false)")
     parser.add_argument('-v', '--verbosity', type=int, default=2, metavar='',
                         help='sets verbosity for debug, 1=Debug (most), 2=Info (normal), 3=Warning (least)')
-    parser.add_argument('--sonar_method', type=str, default='instant',
-                        help="which s500 depth reading to use for time-shifting and bottom reporting")
+    parser.add_argument('--sonar_method', type=str, default='default',
+                        help="which s500 depth reading to use for time-shifting and bottom reporting, avialable "
+                             "are ['default', 'smooth', 'instant']. default uses instant depth for time syncing and"
+                             " smooth depths for final bathy out; 'smooth' uses smoothed values for both, 'instant' "
+                             "uses instant values for both")
     parser.add_argument('--rtklib_executable', type=str, default='ref/rnx2rtkp',
                         help="which s500 depth reading to use for time-shifting and bottom reporting")
-
+    parser.add_argument("--ppk_quality_threshold",  type=int, default=1,
+                        help="this is a quality threshold 1: Fixed, 2: Float, 4:DGPS, 5: single -- see appendix B for "
+                             "more details: https://rtkexplorer.com/pdfs/manual_demo5.pdf  ")
+    parser.add_argument("--instant_sonar_confidence", type=int, default=99,
+                        help="This is a filter threshold for instantaneous confidence for each sonar ping")
+    parser.add_argument("--smoothed_sonar_confidence", type=int, default=60,
+                        help="This is a filter threshold for smoothed confidence from the sonar")
     return parser.parse_args()
 
 
@@ -53,16 +62,32 @@ def verbosity_conversion(verbose: int):
     else:
         raise EnvironmentError('logging verbosity is wrong!')
 
-def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib_executable_path = 'ref/rnx2rtkp'):
+def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib_executable_path = 'ref/rnx2rtkp',
+         ppk_quality_threshold=1, instant_sonar_confidence = 99, smoothed_sonar_confidence = 60):
 
     verbosity_conversion(verbose)
-    antenna_offset = 0.25  # meters between the antenna phase center and sounder head
-    ppk_quality_threshold = 1
-    smoothed_sonar_confidence = 60
-    instant_sonar_confidence = 99
-    #  date that Pi computer was changed to UTC time (will adjust timezone manually before this date)
-    yellowfin_clock_reset_date = DT.datetime(2023, 7,10)  #
+    antenna_offset = 0.25  # meters between the antenna phase center and sounder head - default for yellowfin
 
+    #  date that Pi computer was changed to UTC time (will adjust timezone manually before this date)
+    yellowfin_clock_reset_date = DT.datetime(2023, 7,10)  # do not adjust this date!
+    if sonar_method == 'default':
+        bathy_report = 'smoothed'
+        time_sync = 'instant'
+        sonar_confidence = smoothed_sonar_confidence
+    elif sonar_method == 'instant':
+        sonar_confidence = instant_sonar_confidence
+        bathy_report = sonar_method
+        time_sync = sonar_method
+    elif sonar_method == 'smoothed':
+        sonar_confidence = smoothed_sonar_confidence
+        bathy_report = sonar_method
+        time_sync = sonar_method
+
+    logging.info(f"procesing prameters:  sonar time sync method {time_sync}")
+    logging.info(f"procesing prameters:  bathy sonar method {bathy_report}")
+    logging.info(f"input folder: {datadir}")
+    logging.info(f"ppk_quality_threshold: {ppk_quality_threshold}")
+    logging.info(f"sonar_confidence: {sonar_confidence} %")
     ####################################################################################################################
 
     if datadir.endswith('/'): datadir = datadir[:-1]
@@ -87,7 +112,6 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
     # look for all subfolders with RINEX in the folder name inside the "datadir" emlid ppk processor
     fpathEmlid = os.path.join(datadir, 'emlidRaw')
     saveFnamePPK = os.path.join(datadir, f'{timeString}_ppkRaw.h5')
-
 
     logging.debug(f"saving intermediate files for sonar here: {saveFnameSonar}")
     logging.debug(f"saving intermediate files for sonar here: {saveFnamePPK}")
@@ -191,25 +215,31 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
     # 6.3: now plot my time offset between GPS and sonar
     pc_time_off = payloadGpsData['pc_time_gga'] + ET2UTC - payloadGpsData['gps_time']
 
-    # Compare GPS data to make sure timing is ok
-    plt.figure()
-    plt.suptitle('time offset between pc time and GPS time')
-    ax1 = plt.subplot(121)
-    ax1.plot(pc_time_off, '.')
-    ax1.set_xlabel('PC time')
-    ax1.set_ylabel('PC time - GGA string time (+leap seconds)')
-    ax2 = plt.subplot(122)
-    ax2.hist(pc_time_off, bins=50)
-    ax2.set_xlabel('diff time')
-    plt.tight_layout()
-    plt.savefig(os.path.join(plotDir, 'clockOffset.png'))
-    print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
-    plt.close()
-
+    ofname = os.path.join(plotDir, 'clockOffset.png')
+    # TODO pull this figure out to a function
+    def qaqc_time_offset_determination(ofname, pc_time_off):
+        # Compare GPS data to make sure timing is ok
+        plt.figure()
+        plt.suptitle('time offset between pc time and GPS time')
+        ax1 = plt.subplot(121)
+        ax1.plot(pc_time_off, '.')
+        ax1.set_xlabel('PC time')
+        ax1.set_ylabel('PC time - GGA string time (+leap seconds)')
+        ax2 = plt.subplot(122)
+        ax2.hist(pc_time_off, bins=50)
+        ax2.set_xlabel('diff time')
+        plt.tight_layout()
+        plt.savefig(ofname)
+        print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
+        plt.close()
+    qaqc_time_offset_determination(ofname, pc_time_off)
     # 6.4 Use the cerulean instantaneous bed detection since not sure about delay with smoothed
     # adjust time of the sonar time stamp with timezone shift (ET -> UTC) and the timeshift between the computer and GPS
     sonarData['time'] = sonarData['time'] + ET2UTC - np.median(pc_time_off)  # convert to UTC
-    if sonar_method == 'smooth':
+    if sonar_method == 'default':
+        sonar_range = sonarData['this_ping_depth_m']
+        qualityLogic = sonarData['this_ping_depth_measurement_confidence'] > instant_sonar_confidence
+    elif sonar_method == 'smooth':
         sonar_range = sonarData['smooth_depth_m']
         qualityLogic = sonarData['smoothed_depth_measurement_confidence'] > smoothed_sonar_confidence
     elif sonar_method == 'instant':
@@ -219,55 +249,64 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
         raise ValueError('acceptable sonar methods include ["instant", "smooth"]')
     # use the above to adjust whether you want smoothed/filtered data or raw ping depth values
 
-    # 6.5 now plot sonar with time
-    plt.figure(figsize=(18, 6))
-    cm = plt.pcolormesh([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['range_m'],
-                        sonarData['profile_data'])
-    cbar = plt.colorbar(cm)
-    cbar.set_label('backscatter')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=1,
-             label='this ping Depth')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=2,
-             label='smooth Depth')
-    plt.ylim([10, 0])
-    plt.legend(loc='lower left')
-    # plt.gca().invert_yaxis()
-    plt.tight_layout(rect=[0.05, 0.05, 0.99, 0.99], w_pad=0.01, h_pad=0.01)
-    plt.savefig(os.path.join(plotDir, 'SonarBackScatter.png'))
+    ofname = os.path.join(plotDir, 'SonarBackScatter.png')
+    def qaqc_sonar_profiles(ofname, sonarData):
+        # 6.5 now plot sonar with time
+        plt.figure(figsize=(18, 6))
+        cm = plt.pcolormesh([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['range_m'],
+                            sonarData['profile_data'])
+        cbar = plt.colorbar(cm)
+        cbar.set_label('backscatter')
+        plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=0.1,
+                 label='this ping Depth')
+        plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=0.5,
+                 label='smooth Depth')
+        plt.ylim([10, 0])
+        plt.legend(loc='lower left')
+        # plt.gca().invert_yaxis()
+        plt.tight_layout(rect=[0.05, 0.05, 0.99, 0.99], w_pad=0.01, h_pad=0.01)
+        plt.savefig(ofname)
+    qaqc_sonar_profiles(ofname, sonarData)
+    ofname = os.path.join(plotDir, 'AllData.png')
+    def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk):
+        # 6.6 Now lets take a look at all of our data from the different sources
+        plt.figure(figsize=(10, 4))
+        plt.suptitle('all data sources elevation', fontsize=20)
+        plt.title('These data need to overlap in time for processing to work')
+        plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
+        plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
+                 label='L1 (only) GPS elev (MSL)')
+        plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
+                 label='ppk elevation [NAVD88 m]')
+        plt.ylim([0, 10])
+        plt.ylabel('elevation [m]')
+        plt.xlabel('epoch time (s)')
+        plt.legend()
+        # plt.show()
+        plt.savefig(ofname)
+    qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk)
 
-    # 6.6 Now lets take a look at all of our data from the different sources
-    plt.figure(figsize=(10, 4))
-    plt.suptitle('all data sources elevation', fontsize=20)
-    plt.title('These data need to overlap in time for processing to work')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
-             label='L1 (only) GPS elev (MSL)')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
-             label='ppk elevation [NAVD88 m]')
-    plt.ylim([0, 10])
-    plt.ylabel('elevation [m]')
-    plt.xlabel('epoch time (s)')
-    plt.legend()
-    # plt.show()
-    plt.savefig(os.path.join(plotDir, 'AllData.png'))
+
+    ofname = os.path.join(plotDir, 'subsetForCrossCorrelation.png')
+    def sonar_pick_cross_correlation_time(ofname, sonar_range):
+        plt.figure(figsize=(10, 4))
+        plt.subplot(211)
+        plt.title('all data: select start/end point for measured depths to do time-syncing over ')
+        plt.plot(sonar_range)
+        plt.ylim([0, 10])
+        d = plt.ginput(2, timeout=-999)
+        plt.subplot(212)
+        # Now pull corresponding indices for sonar data for same time
+        assert len(d) == 2, "need 2 points from mouse clicks"
+        sonarIndicies = np.arange(np.floor(d[0][0]).astype(int), np.ceil(d[1][0]).astype(int))
+        plt.plot(sonar_range[sonarIndicies])
+        plt.title('my selected data to proceed with cross-correlation/time syncing')
+        plt.tight_layout()
+        plt.savefig(ofname)
+        return sonarIndicies
 
     # 6.7 # plot sonar, select indices of interest, and then second subplot is time of interest
-    plt.figure(figsize=(10, 4))
-    plt.subplot(211)
-    plt.title('all data: select start/end point for measured depths to do time-syncing over ')
-    plt.plot(sonar_range)
-    plt.ylim([0, 10])
-    d = plt.ginput(2, timeout=-999)
-    plt.subplot(212)
-    # Now pull corresponding indices for sonar data for same time
-    assert len(d) == 2, "need 2 points from mouse clicks"
-    sonarIndicies = np.arange(np.floor(d[0][0]).astype(int), np.ceil(d[1][0]).astype(int))
-    plt.plot(sonar_range[sonarIndicies])
-    plt.title('my selected data to proceed with cross-correlation/time syncing')
-    plt.tight_layout()
-
-    plt.savefig(os.path.join(plotDir, 'subsetForCrossCorrelation.png'))
-
+    sonarIndicies = sonar_pick_cross_correlation_time(ofname, sonar_range)
     # now identify corresponding times from ppk GPS to those times of sonar that we're interested in
     indsPPK = np.where((T_ppk['epochTime'] >= sonarData['time'][sonarIndicies[0]]) & (
             T_ppk['epochTime'] <= sonarData['time'][sonarIndicies[-1]]))[0]
@@ -290,27 +329,31 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
                                                                           signal.detrend(sonar_range_i),
                                                                           sampleFreq=np.median(np.diff(commonTime)))
 
-    plt.figure(figsize=(16, 8))
-    ax1 = plt.subplot(311)
-    plt.plot(T_ppk['epochTime'][indsPPK], T_ppk['GNSS_elevation_NAVD88'][indsPPK], label='ppk elevation NAVD88 m')
-    plt.plot(sonarData['time'][sonarIndicies], sonar_range[sonarIndicies], label='sonar_raw')
-    plt.legend()
+    ofname = os.path.join(plotDir, 'subsetAfterCrossCorrelation.png')
+    def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime ):
+        # TODO pull this figure out to a function
+        plt.figure(figsize=(16, 8))
+        ax1 = plt.subplot(311)
+        plt.plot(T_ppk['epochTime'][indsPPK], T_ppk['GNSS_elevation_NAVD88'][indsPPK], label='ppk elevation NAVD88 m')
+        plt.plot(sonarData['time'][sonarIndicies], sonar_range[sonarIndicies], label='sonar_raw')
+        plt.legend()
 
-    plt.subplot(312, sharex=ax1)
-    plt.title(f"sonar data needs to be adjusted by {phaseLaginTime} seconds")
-    plt.plot(commonTime, signal.detrend(ppkHeight_i), label='ppk input')
-    plt.plot(commonTime, signal.detrend(sonar_range_i), label='sonar input')
-    plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i), '.', label='interp _sonar shifted')
-    plt.legend()
+        plt.subplot(312, sharex=ax1)
+        plt.title(f"sonar data needs to be adjusted by {phaseLaginTime} seconds")
+        plt.plot(commonTime, signal.detrend(ppkHeight_i), label='ppk input')
+        plt.plot(commonTime, signal.detrend(sonar_range_i), label='sonar input')
+        plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i), '.', label='interp _sonar shifted')
+        plt.legend()
 
-    plt.subplot(313, sharex=ax1)
-    plt.title('shifted residual between sonar and GNSS (should be 0)')
-    plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i) - signal.detrend(ppkHeight_i), '.',
-             label='residual')
-    plt.ylim([-1, 1])
-    plt.tight_layout()
-    plt.show()
-    plt.savefig(os.path.join(plotDir, 'subsetAfterCrossCorrelation.png'))
+        plt.subplot(313, sharex=ax1)
+        plt.title('shifted residual between sonar and GNSS (should be 0)')
+        plt.plot(commonTime + phaseLaginTime, signal.detrend(sonar_range_i) - signal.detrend(ppkHeight_i), '.',
+                 label='residual')
+        plt.ylim([-1, 1])
+        plt.tight_layout()
+        plt.show()
+        plt.savefig(ofname)
+    qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime)
 
     print(f"sonar data adjusted by {phaseLaginTime:.3f} seconds")
 
@@ -328,7 +371,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
     print("here's where some better filtering could be done, probably worth saving an intermediate product here "
           "for future revisit")
 
-    print(f"for now we're only saving/logging values that have a GNSS fix quality of {ppk_quality_threshold} and a "
+    logging.info(f"saving/logging values that have a GNSS fix quality of {ppk_quality_threshold} and a "
           f"sonar confidence > {smoothed_sonar_confidence}")
 
     # now put relevant GNSS and sonar on output timestamps
@@ -346,7 +389,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
     for tidx, tt in tqdm.tqdm(enumerate(time_out)):
         idxTimeMatchGNSS, idxTimeMatchGNSS = None, None
 
-        # first find if theres a time match for sonar
+        # first find if there is a time match for sonar
         sonarlogic = np.abs(np.ceil(tt * 10) / 10 - np.ceil(sonar_time_out * 10) / 10)
         if sonarlogic.min() <= 0.2:  # 0.2  with a sampling of <0-2, it should identify the nearest sample (at 0.3s interval)
             idxTimeMatchSonar = np.argmin(sonarlogic)
@@ -355,9 +398,9 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
         if ppklogic.min() <= 0.101:  # .101 handles numerics
             idxTimeMatchGNSS = np.argmin(ppklogic)
 
-        # if we have both, then we log the data
+        # if we have both sonar and GNSS for this time step, then we log the data
         if idxTimeMatchGNSS is not None and idxTimeMatchSonar is not None:  # we have matching data
-            # now apply it
+            # if it passes quality thresholds
             if T_ppk['Q'][idxTimeMatchGNSS] <= ppk_quality_threshold and qualityLogic[idxTimeMatchSonar]:
                 # log matching data that meets quality metrics
                 sonar_smooth_depth_out[tidx] = sonarData['smooth_depth_m'][idxTimeMatchSonar]
@@ -372,7 +415,12 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
                 gnss_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS]
                 fix_quality[tidx] = T_ppk['Q'][idxTimeMatchGNSS]
                 # now log elevation outs depending on which sonar i want to log
-                if sonar_method == 'smooth':
+                if sonar_method == 'default':
+                    elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
+                                          sonarData['smooth_depth_m'][idxTimeMatchSonar]
+                    sonar_out[tidx] = sonarData['smooth_depth_m'][idxTimeMatchSonar]
+
+                elif sonar_method == 'smooth':
                     elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
                                           sonarData['smooth_depth_m'][idxTimeMatchSonar]
                     sonar_out[tidx] = sonarData['smooth_depth_m'][idxTimeMatchSonar]
@@ -382,7 +430,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
                                           sonarData['this_ping_depth_m'][idxTimeMatchSonar]
                     sonar_out[tidx] = sonarData['this_ping_depth_m'][idxTimeMatchSonar]
                 else:
-                    raise ValueError('acceptable sonar methods include ["instant", "smooth"]')
+                    raise ValueError('acceptable sonar methods include ["default", "instant", "smooth"]')
 
             # now log bad locations for quality plotting
             if T_ppk['Q'][idxTimeMatchGNSS] <= ppk_quality_threshold and not qualityLogic[idxTimeMatchSonar]:
@@ -391,77 +439,41 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
     # identify data that are not nan's to save
     idxDataToSave = np.argwhere(~np.isnan(sonar_smooth_depth_out)).squeeze()  # identify data that are not NaNs
 
-    fs = 16
-    # make a final plot of all the processed data
-    pierStart = geoprocess.FRFcoord(0, 515, coordType='FRF')
-    pierEnd = geoprocess.FRFcoord(534, 515, coordType='FRF')
+    # convert the lon/lat data we care about to FRF coords
+    coords = geoprocess.FRFcoord(lon_out[idxDataToSave], lat_out[idxDataToSave], coordType='LL')
 
-    plt.figure(figsize=(12, 8))
-    plt.scatter(lon_out[idxDataToSave], lat_out[idxDataToSave], c=elevation_out[idxDataToSave], vmax=-0.5,
-                label='processed depths')
-    cbar = plt.colorbar()
-    cbar.set_label('depths NAVD88 [m]', fontsize=fs)
-    plt.plot(T_ppk['lon'], T_ppk['lat'], 'k.', ms=0.25, label='vehicle trajectory')
-    plt.plot(bad_lon_out, bad_lat_out, 'rx', ms=3, label='bad sonar data, good GPS')
-    plt.plot([pierStart['Lon'], pierEnd['Lon']], [pierStart['Lat'], pierEnd['Lat']], 'k-', lw=5, label='FRF pier')
-    plt.ylabel('latitude', fontsize=fs)
-    plt.xlabel('longitude', fontsize=fs)
-    plt.title(f'final data with elevations {timeString}', fontsize=fs + 4)
-    plt.tight_layout()
-    plt.legend()
-    plt.savefig(os.path.join(plotDir, 'FinalDataProduct.png'))
+    FRF = yellowfinLib.is_local_to_FRF(coords)
+    if not FRF:
+        logging.log("identified data as NOT Local to the FRF")
+    ofname = os.path.join(plotDir, 'FinalDataProduct.png')
+    yellowfinLib.plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, FRF)
 
 
-    FRF = True
-    try:
-        coords = geoprocess.FRFcoord(lon_out[idxDataToSave], lat_out[idxDataToSave])
-
-        minloc = 800
-        maxloc = 1000
-        logic = (coords['yFRF'] > minloc) & (coords['yFRF'] < maxloc)
-
-        plt.figure(figsize=(12, 8));
-        plt.subplot(211)
-        plt.title('plan view of survey')
-        plt.scatter(coords['xFRF'], coords['yFRF'], c=elevation_out[idxDataToSave], vmax=-1)
-        cbar = plt.colorbar()
-        cbar.set_label('depth')
-        plt.subplot(212)
-        plt.title(f"profile at line y={np.median(coords['yFRF'][logic]).astype(int)}")
-        plt.plot(coords['xFRF'][logic],
-                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_instant_depth_out[idxDataToSave][logic], '.',
-                 label='instant depths')
-        plt.plot(coords['xFRF'][logic],
-                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_smooth_depth_out[idxDataToSave][logic], '.',
-                 label='smooth Depth')
-        plt.plot(coords['xFRF'][logic], elevation_out[idxDataToSave][logic], '.', label='chosen depths')
-        plt.legend()
-        plt.xlabel('xFRF')
-        plt.ylabel('elevation NAVD88[m]')
-        plt.tight_layout()
-        plt.savefig(os.path.join(plotDir, 'singleProfile.png'))
-
-        data = {'time': time_out[idxDataToSave], 'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
-                'Latitude': lat_out[idxDataToSave], 'Longitude': lon_out[idxDataToSave],
-                'Northing': coords['StateplaneN'], 'Easting': coords['StateplaneE'], 'xFRF': coords['xFRF'],
-                'yFRF': coords['yFRF'], 'Elevation': elevation_out[idxDataToSave],
-                'Profile_number': np.ones_like(elevation_out[idxDataToSave]) * -999,
-                'Survey_number': np.ones_like(elevation_out[idxDataToSave]) * -999,
-                'Ellipsoid': np.ones_like(elevation_out[idxDataToSave]) * -999}
-
-        data['UNIX_timestamp'] = data['time']
-        data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir)
-        ## now make netCDF files
-        ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')
-        data['Profile_number'] = data.pop('profileNumber')
-        # data['Profile_number'].iloc[np.isnan(data['Profile_number'])] = -999
-        data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
-        py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
-                                 varYaml='yamlFile/transect_variables.yml', data=data)
+    #now make data packat to save
+    data = {'time': time_out[idxDataToSave], 'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
+            'Latitude': lat_out[idxDataToSave], 'Longitude': lon_out[idxDataToSave],
+            'Northing': coords['StateplaneN'], 'Easting': coords['StateplaneE'],  'Elevation': elevation_out[idxDataToSave],
+            'Ellipsoid': np.ones_like(elevation_out[idxDataToSave]) * -999}
+    if FRF is True:
+        data['xFRF'] = coords['xFRF']
+        data['yFRF'] = coords['yFRF']
+        data['Profile_number'] = np.ones_like(elevation_out[idxDataToSave]) * -999,
+        data['Survey_number'] =  np.ones_like(elevation_out[idxDataToSave]) * -999
         yellowfinLib.plotPlanViewOnArgus(data, argusGeotiff, ofName=os.path.join(plotDir, 'yellowfinDepthsOnArgus.png'))
 
-    except:
-        FRF = False
+        ofname = os.path.join(plotDir, 'singleProfile.png')
+        yellowfinLib.plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave)
+
+    data['UNIX_timestamp'] = data['time']
+    data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir)
+
+    ## now make netCDF files
+    ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')
+    data['Profile_number'] = data.pop('profileNumber')
+    data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
+    py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
+                             varYaml='yamlFile/transect_variables.yml', data=data)
+
 
     outputfile = os.path.join(datadir, f'{timeString}_totalCombinedRawData.h5')
     with h5py.File(outputfile, 'w') as hf:
@@ -490,6 +502,8 @@ if __name__ == "__main__":
     assert os.path.isdir(args.data_dir), "check your input filepath, code doesn't see the folder"
 
     main(args.data_dir, geoid=args.geoid_file, makePos=args.make_pos, verbose=args.verbosity,
-         rtklib_executable_path=args.rtklib_executable, sonar_method=args.sonar_method)
-    print(f"success processing {args.data_dir}")
+         rtklib_executable_path=args.rtklib_executable, sonar_method=args.sonar_method,
+         ppk_quality_threshold = args.ppk_quality_threshold,
+    smoothed_sonar_confidence = args.smoothed_sonar_confidence, instant_sonar_confidence = args.instant_sonar_confidence)
+    logging.info(f"success processing {args.data_dir}")
 

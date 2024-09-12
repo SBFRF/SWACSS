@@ -1099,3 +1099,57 @@ def transectSelection(data, **kwargs):
         plt.close()
 
     return data
+
+
+def plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave):
+
+        minloc = 800
+        maxloc = 1000
+        logic = (coords['yFRF'] > minloc) & (coords['yFRF'] < maxloc)
+
+
+        plt.figure(figsize=(12, 8))
+        plt.subplot(211)
+        plt.title('plan view of survey')
+        plt.scatter(coords['xFRF'], coords['yFRF'], c=elevation_out[idxDataToSave], vmax=-1)
+        cbar = plt.colorbar()
+        cbar.set_label('depth')
+        plt.subplot(212)
+        plt.title(f"profile at line y={np.median(coords['yFRF'][logic]).astype(int)}")
+        plt.plot(coords['xFRF'][logic],
+                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_instant_depth_out[idxDataToSave][logic], '.',
+                 label='instant depths')
+        plt.plot(coords['xFRF'][logic],
+                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_smooth_depth_out[idxDataToSave][logic], '.',
+                 label='smooth Depth')
+        plt.plot(coords['xFRF'][logic], elevation_out[idxDataToSave][logic], '.', label='chosen depths')
+        plt.legend()
+        plt.xlabel('xFRF')
+        plt.ylabel('elevation NAVD88[m]')
+        plt.tight_layout()
+        plt.savefig(ofname)
+
+def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, FRF):
+        fs = 16
+        # make a final plot of all the processed data
+        pierStart = geoprocess.FRFcoord(0, 515, coordType='FRF')
+        pierEnd = geoprocess.FRFcoord(534, 515, coordType='FRF')
+
+        plt.figure(figsize=(12, 8))
+        plt.scatter(lon_out[idxDataToSave], lat_out[idxDataToSave], c=elevation_out[idxDataToSave], vmax=-0.5,
+                    label='processed depths')
+        cbar = plt.colorbar()
+        cbar.set_label('depths NAVD88 [m]', fontsize=fs)
+        plt.plot(T_ppk['lon'], T_ppk['lat'], 'k.', ms=0.25, label='vehicle trajectory')
+        plt.plot(bad_lon_out, bad_lat_out, 'rx', ms=3, label='bad sonar data, good GPS')
+        if FRF == True:
+            plt.plot([pierStart['Lon'], pierEnd['Lon']], [pierStart['Lat'], pierEnd['Lat']], 'k-', lw=5, label='FRF pier')
+        plt.ylabel('latitude', fontsize=fs)
+        plt.xlabel('longitude', fontsize=fs)
+        plt.title(f'final data with elevations {timeString}', fontsize=fs + 4)
+        plt.tight_layout()
+        plt.legend()
+        plt.savefig(ofname)
+
+def is_local_to_FRF(coords):
+    return ((coords['yFRF'] < 2000) & (coords['yFRF'] > -20000)).all()
