@@ -408,6 +408,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         hf.create_dataset('sonar_backscatter_out', data=sonar_backscatter_out[idxDataToSave])
         hf.create_dataset('bad_lat', data=bad_lat_out)
         hf.create_dataset('bad_lon', data=bad_lon_out)
+        hf.create_dataset('sonar_depth_bin', data=sonarData['range_m'])
         if FRF is True:
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
