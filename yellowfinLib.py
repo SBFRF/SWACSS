@@ -336,6 +336,7 @@ def load_h5_to_dictionary(fname):
     dataOut = {}
     for key in hf.keys():
         dataOut[key] = np.array(hf.get(key))
+    hf.close()
     return dataOut
 
 
