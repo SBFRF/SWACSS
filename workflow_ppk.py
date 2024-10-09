@@ -285,11 +285,11 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     time_out = np.linspace(timeOutInterpStart, timeOutInterpEnd, int((timeOutInterpEnd - timeOutInterpStart) / 0.1),
                            endpoint=True)
 
-    print("here's where some better filtering could be done, probably worth saving an intermediate product here "
+    print("TODO: here's where some better filtering could be done, probably worth saving an intermediate product here "
           "for future revisit")
 
     logging.info(f"saving/logging values that have a GNSS fix quality of {ppk_quality_threshold} and a "
-          f"sonar confidence > {smoothed_sonar_confidence}")
+                 f"sonar confidence > {smoothed_sonar_confidence}")
 
     # now put relevant GNSS and sonar on output timestamps
     # initalize out variables

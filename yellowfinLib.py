@@ -1180,20 +1180,20 @@ def is_local_to_FRF(coords):
     return ((coords['yFRF'] < 2000) & (coords['yFRF'] > -20000)).all()
 
 def qaqc_time_offset_determination(ofname, pc_time_off):
-        # Compare GPS data to make sure timing is ok
-        plt.figure()
-        plt.suptitle('time offset between pc time and GPS time')
-        ax1 = plt.subplot(121)
-        ax1.plot(pc_time_off, '.')
-        ax1.set_xlabel('PC time')
-        ax1.set_ylabel('PC time - GGA string time (+leap seconds)')
-        ax2 = plt.subplot(122)
-        ax2.hist(pc_time_off, bins=50)
-        ax2.set_xlabel('diff time')
-        plt.tight_layout()
-        plt.savefig(ofname)
-        print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
-        plt.close()
+    # Compare GPS data to make sure timing is ok
+    plt.figure()
+    plt.suptitle('time offset between pc time and GPS time')
+    ax1 = plt.subplot(121)
+    ax1.plot(pc_time_off, '.')
+    ax1.set_xlabel('PC time')
+    ax1.set_ylabel('PC time - GGA string time (+leap seconds)')
+    ax2 = plt.subplot(122)
+    ax2.hist(pc_time_off, bins=50)
+    ax2.set_xlabel('diff time')
+    plt.tight_layout()
+    plt.savefig(ofname)
+    print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
+    plt.close()
 
 def sonar_pick_cross_correlation_time(ofname, sonar_range):
     plt.figure(figsize=(10, 4))
