@@ -20,6 +20,11 @@ with example argument
 '--sonar_method'       -the method used for picking the bottom from backscatter and time syncing (default='instant')
                         'instant' uses the native s500 algorithm w/o a filter
                         'smoothed' uses the native s500 algorithm w/ native kalman filter
+
+"--ppk_quality_threshold"     - this is a quality threshold 1: Fixed, 2: Float, 4:DGPS, 5: single -- see appendix B for 
+                                more details: https://rtkexplorer.com/pdfs/manual_demo5.pdf 
+"--instant_sonar_confidence"  - This is a filter threshold for instantaneous confidence for each sonar ping
+"--smoothed_sonar_confidence" - This is a filter threshold for smoothed confidence from the sonar
 ```
 ### Assumptions:
 The code expects a `data_dir` argument passed which should be a folder in the `YYYYMMDD` format
