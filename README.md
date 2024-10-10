@@ -11,20 +11,28 @@ with example argument
 `python workflow_ppk.py -d /data/yellowfin/20240626`
 ### available arguments
 ``` 
-'-d', '--data_dir'     -REQUIRED: the data directory to process
-'-g', '--geoid_file'   -the location of the geoid file that is used during processing (default='ref/g2012bu0.bin')
-'-p', '--make_pos'     -boolean to instruct code to make a pos file or if one is provided from external processed script (default=True)
-                        if True, the rtklib libary needs to be installed 
+usage: PPK processing for yellowfin (V0.2) [-h] -d True [-g]
+                                           [-p | --make_pos | --no-make_pos]
+                                           [-v] [--sonar_method SONAR_METHOD]
+                                           [--rtklib_executable RTKLIB_EXECUTABLE]
 
-'--rtklib_executable'  -the location of the rtklib exectuable (default=ref/rnx2rtkp)
-'--sonar_method'       -the method used for picking the bottom from backscatter and time syncing (default='instant')
-                        'instant' uses the native s500 algorithm w/o a filter
-                        'smoothed' uses the native s500 algorithm w/ native kalman filter
-
-"--ppk_quality_threshold"     - this is a quality threshold 1: Fixed, 2: Float, 4:DGPS, 5: single -- see appendix B for 
-                                more details: https://rtkexplorer.com/pdfs/manual_demo5.pdf 
-"--instant_sonar_confidence"  - This is a filter threshold for instantaneous confidence for each sonar ping
-"--smoothed_sonar_confidence" - This is a filter threshold for smoothed confidence from the sonar
+options:
+  -h, --help            show this help message and exit
+  -d True, --data_dir True
+                        [REQUIRED] directory of data that are to be processed
+  -g , --geoid_file     binary geoid file, required for conversion of
+                        ellipsoid height to NAVD88
+  -p, --make_pos, --no-make_pos
+                        make posfile (True) using RTKlib or provide one
+                        through external environment (false)
+  -v , --verbosity      sets verbosity for debug, 1=Debug (most), 2=Info
+                        (normal), 3=Warning (least)
+  --sonar_method SONAR_METHOD
+                        which s500 depth reading to use for time-shifting and
+                        bottom reporting
+  --rtklib_executable RTKLIB_EXECUTABLE
+                        path for RTK_lib executable (required if --make-pos
+                        flag assigned)
 ```
 ### Assumptions:
 The code expects a `data_dir` argument passed which should be a folder in the `YYYYMMDD` format

@@ -730,7 +730,7 @@ def loadPPKdata(fldrlistPPK):
 
         except:  # this is in the event there is no data in the pos files
             continue
-    T_ppk["datetime"] = pd.to_datetime(Tpos['date'] + Tpos['time'], format="%Y/%m/%d%H:%M:%S.%f", utc=True)
+    T_ppk["datetime"] = pd.to_datetime(T_ppk['date'] + T_ppk['time'], format="%Y/%m/%d%H:%M:%S.%f", utc=True)
     T_ppk["epochTime"] = T_ppk["datetime"].apply(lambda x: x.timestamp())
     return T_ppk
 

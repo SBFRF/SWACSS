@@ -23,16 +23,17 @@ def parse_args(__version__):
     parser = argparse.ArgumentParser(f"PPK processing for yellowfin (V{__version__})", add_help=True)
     # datadir, geoid, makePos = True, verbose = 1
     # Command-Line Interface: (REQUIRED) Flags
-    parser.add_argument('-d', '--data_dir', type=str, metavar=True, help="directory to process",
+    parser.add_argument('-d', '--data_dir', type=str, metavar=True,
+                        help="[REQUIRED] directory of data that are to be processed",
                         required=True)
-    # parser.add_argument('-t', '--target', type=str, nargs=2, metavar=("path", "label"), required=True,
-    #                     action='append', help="file path to target ground truth")
+
+
 
     # Command-Line Interface: (OPTIONAL) Flags
     parser.add_argument('-g', '--geoid_file', type=str, default='ref/g2012bu0.bin', metavar='',
-                        help="binary geoid file")
-    parser.add_argument('-p', '--make_pos', type=bool, default=True,
-                        help="make posfile (True) or provide one through external environment (false)")
+                        help="binary geoid file, required for conversion of ellipsoid height to NAVD88")
+    parser.add_argument('-p', '--make_pos', action=argparse.BooleanOptionalAction, type=bool, default=False,
+                        help="make posfile (True) using RTKlib or provide one through external environment (false)")
     parser.add_argument('-v', '--verbosity', type=int, default=2, metavar='',
                         help='sets verbosity for debug, 1=Debug (most), 2=Info (normal), 3=Warning (least)')
     parser.add_argument('--sonar_method', type=str, default='default',
@@ -41,7 +42,7 @@ def parse_args(__version__):
                              " smooth depths for final bathy out; 'smooth' uses smoothed values for both, 'instant' "
                              "uses instant values for both")
     parser.add_argument('--rtklib_executable', type=str, default='ref/rnx2rtkp',
-                        help="which s500 depth reading to use for time-shifting and bottom reporting")
+                        help="path for RTK_lib executable (required if --make-pos flag assigned)")
     parser.add_argument("--ppk_quality_threshold",  type=int, default=1,
                         help="this is a quality threshold 1: Fixed, 2: Float, 4:DGPS, 5: single -- see appendix B for "
                              "more details: https://rtkexplorer.com/pdfs/manual_demo5.pdf  ")
@@ -49,6 +50,7 @@ def parse_args(__version__):
                         help="This is a filter threshold for instantaneous confidence for each sonar ping")
     parser.add_argument("--smoothed_sonar_confidence", type=int, default=60,
                         help="This is a filter threshold for smoothed confidence from the sonar")
+
     return parser.parse_args()
 
 
