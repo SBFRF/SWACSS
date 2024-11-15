@@ -440,7 +440,13 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
         plt.tight_layout()
         plt.savefig(os.path.join(plotDir, 'singleProfile.png'))
 
-        data = {'time': time_out[idxDataToSave], 'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
+        # Define name of output netcdf file
+        ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')
+
+        if os.path.isfile(ofname):  # if file already exists in plot dir, skip the line selection step
+            print('netCDF file containing profile lines already exists! Skipping line selection.')
+        else:
+            data = {'time': time_out[idxDataToSave], 'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
                 'Latitude': lat_out[idxDataToSave], 'Longitude': lon_out[idxDataToSave],
                 'Northing': coords['StateplaneN'], 'Easting': coords['StateplaneE'], 'xFRF': coords['xFRF'],
                 'yFRF': coords['yFRF'], 'Elevation': elevation_out[idxDataToSave],
@@ -448,14 +454,14 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
                 'Survey_number': np.ones_like(elevation_out[idxDataToSave]) * -999,
                 'Ellipsoid': np.ones_like(elevation_out[idxDataToSave]) * -999}
 
-        data['UNIX_timestamp'] = data['time']
-        data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir)
-        ## now make netCDF files
-        ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')
-        data['Profile_number'] = data.pop('profileNumber')
-        # data['Profile_number'].iloc[np.isnan(data['Profile_number'])] = -999
-        data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
-        py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
+            data['UNIX_timestamp'] = data['time']
+            data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir)
+            ## now make netCDF files
+            # ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')     # file name is now defined before if statement
+            data['Profile_number'] = data.pop('profileNumber')
+            # data['Profile_number'].iloc[np.isnan(data['Profile_number'])] = -999
+            data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
+            py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
                                  varYaml='yamlFile/transect_variables.yml', data=data)
         yellowfinLib.plotPlanViewOnArgus(data, argusGeotiff, ofName=os.path.join(plotDir, 'yellowfinDepthsOnArgus.png'))
 
