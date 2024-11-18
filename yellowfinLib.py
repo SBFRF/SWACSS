@@ -797,14 +797,39 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
     plt.close()
 
 
-def getArgusImagery(dateOfInterest, ofName=None, imageType="timex", verbose=True):
+def getArgusImagery(dateOfInterest: DT, ofName:str = None, imageType:str = "timex", image_format: str = "tif",
+                    verbose:bool = True):
+    """this helper function gets argus imagery from CorpsCam to be used as background for plotting
+
+    Args:
+        dateOfInterest(type:datetime): hour/minute of image
+        ofName(str): what to name the output file on write
+        imageType(str): Needs to be understood type of image (default=Timex)
+        image_format(str): format of file to be returned.  tif will return geotiff in stateplane NC, png will return
+            image in FRF coordinates.
+        verbose(bool): boolean describing level of verbosity
+
+    Returns:
+        ofName
+
+    TODO:
+        Implement checks/direction on "imageType" based on knowledge of what's on the server
+        implement geotiff/png
+
+    """
     if verbose: logging.basicConfig(level=logging.INFO)
     # client = Minio("coastalimaging.erdc.dren.mil")
     # ## now lets find what files are around
     # objects = client.list_objects('FrfTower', prefix="Processed/alignedObliques/c1", recursive=True,)
     baseURL = "https://coastalimaging.erdc.dren.mil/FrfTower/Processed/Orthophotos/cxgeo/"
     fldr = dateOfInterest.strftime("%Y_%m_%d")
-    fname = f'{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.FrfTower.cxgeo.{imageType}.tif'
+    if image_format.lower() in ['tif', 'geotiff']:
+        camera_format = 'cxgeo'
+    elif image_format.lower() in ['png', 'frf', 'jpg']:
+        camera_format = 'cx'
+    else:
+        raise NotImplementedError("Only available  ['png', 'frf', 'jpg'] or ['tif', 'geotiff'] ")
+    fname = f'{dateOfInterest.strftime("%Y%m%dT%H%M%SZ")}.FrfTower.{camera_format}.{imageType}.tif'
 
     logging.info(f"retreiving {baseURL + fldr + fname}")
     wgetURL = os.path.join(baseURL, fldr, fname)
