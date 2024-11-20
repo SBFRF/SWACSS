@@ -22,6 +22,7 @@ def make_summary_yaml(datadir):
     ]
 
     # Prompt the user to enter a value for each key, organize into dictionary object
+    print('Populate mission summary YAML file by answering the following questions:')
     for i, key in enumerate(data.keys()):     # Could stand to include some error catches here to make sure user only enters "y","n", or an integer
         if i == 3 and data["repeat"].strip().lower() == "n":
             # Skip last question if answer to "did you repeat" is "n"
@@ -58,9 +59,23 @@ def make_summary_yaml(datadir):
 
 ########################################################################################################################
 
-# # Mission Failure YAML File
+# # # Mission Failure YAML File
 # def make_failure_yaml(datadir):
 #
 #     import yaml
 #     import os
 #
+#    # Initialize a dictionary with four pre-defined keys and empty values
+#     data = {
+#         "mission_failure": "",
+#         "mechanical_failure": "",
+#         "data_quality_failure": "",
+#         "condition_failure": "",
+#     }
+#
+#     questions = [
+#         "Was there any kind of mission failure? (y/n): ",
+#         "Enter category of mechanical failure -- 0=no failure, 1=something broke but mission was still accomplished, 2=vehicle rescue required: ",
+#         "Enter category of quality failure -- TBD ",
+#         "Enter category of condition failure -- 0=no failure, 1=comms, 2=hydrodynamic (i.e. breakpoint), 3=environmental (i.e. biofouling): "
+#     ]
