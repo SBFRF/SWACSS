@@ -18,7 +18,7 @@ import tqdm
 from testbedutils import geoprocess
 import argparse, logging
 
-from mission_yaml_files import make_summary_yaml
+from mission_yaml_files import make_summary_yaml, make_failure_yaml
 
 __version__ = 0.2
 def parse_args(__version__):
@@ -78,6 +78,9 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
 
     # Make mission summary YAML based on user prompted inputs, write to datadir
     make_summary_yaml(datadir)
+
+    # Make mission failure YAML based on user prompted inputs, write to datadir
+    make_failure_yaml(datadir)
 
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
