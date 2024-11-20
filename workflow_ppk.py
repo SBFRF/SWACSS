@@ -18,6 +18,8 @@ import tqdm
 from testbedutils import geoprocess
 import argparse, logging
 
+from mission_yaml_files import make_summary_yaml
+
 __version__ = 0.2
 def parse_args(__version__):
     parser = argparse.ArgumentParser(f"PPK processing for yellowfin (V{__version__})", add_help=True)
@@ -73,6 +75,9 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
     argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
                                                       DT.timedelta(hours=14),
                                                       ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),)
+
+    # Make mission summary YAML based on user prompted inputs, write to datadir
+    make_summary_yaml(datadir)
 
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
