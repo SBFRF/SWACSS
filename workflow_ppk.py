@@ -76,12 +76,6 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
                                                       DT.timedelta(hours=14),
                                                       ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),)
 
-    # Make mission summary YAML based on user prompted inputs, write to datadir
-    make_summary_yaml(datadir)
-
-    # Make mission failure YAML based on user prompted inputs, write to datadir
-    make_failure_yaml(datadir)
-
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
     saveFnameSonar = os.path.join(datadir, f'{timeString}_sonarRaw.h5')  # saves sonar file here
@@ -488,6 +482,13 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='instant', rtklib
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
         hf.create_dataset('Profile_number', data=data['Profile_number'])
+
+
+    # Make mission summary YAML based on user prompted inputs, write to datadir
+    make_summary_yaml(datadir)
+
+    # Make mission failure YAML based on user prompted inputs, write to datadir
+    make_failure_yaml(datadir)
 
 
 if __name__ == "__main__":
