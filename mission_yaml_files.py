@@ -14,12 +14,13 @@ def make_summary_yaml(datadir):
 
     # First, check to see if file already exists; if so, decide if you want to overwrite it
     if os.path.exists(file_path):
-        overwrite = input("File already exists. Do you want to overwrite it? (y/n): ")
-        if overwrite.strip().lower() == "y":
-            print("File will be overwritten.")
-        else:
+        overwrite = input(mission_summary_fname + " already exists. Do you want to overwrite it? (y/n): ")
+        if overwrite.strip().lower() != "y":
             print("File will not be overwritten. Exiting function.")
-            exit()  # exit make_summary_yaml.py
+            return
+        else:
+            print("File will be overwritten.")
+
 
     # Initialize a dictionary with four pre-defined keys and empty values
     mission_metadata = {
@@ -71,7 +72,7 @@ def make_summary_yaml(datadir):
         yaml.dump(mission_metadata, file)
         # Write the optional notes
         file.write(user_notes)
-    print("Responses written to", mission_summary_fname, "in mission directory")
+    print("Responses written to ", mission_summary_fname, " in mission directory.")
 
 
 ########################################################################################################################
@@ -87,12 +88,12 @@ def make_failure_yaml(datadir):
 
     # First, check to see if file already exists; if so, decide if you want to overwrite it
     if os.path.exists(file_path):
-        overwrite = input("File already exists. Do you want to overwrite it? (y/n): ")
-        if overwrite.strip().lower() == "y":
-            print("File will be overwritten.")
-        else:
+        overwrite = input(failure_fname + " already exists. Do you want to overwrite it? (y/n): ")
+        if overwrite.strip().lower() != "y":
             print("File will not be overwritten. Exiting function.")
-            exit()  # exit make_failure_yaml.py
+            return
+        else:
+            print("File will be overwritten.")
 
 
    # Initialize a dictionary with four pre-defined keys and empty values
@@ -153,4 +154,4 @@ def make_failure_yaml(datadir):
         file.write(user_notes + "\n")
         # Write the additional comments
         file.write(failure_comments)
-    print("Responses written to", failure_fname, "in mission directory")
+    print("Responses written to ", failure_fname, " in mission directory.")
