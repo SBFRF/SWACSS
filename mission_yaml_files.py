@@ -81,7 +81,7 @@ def make_summary_yaml(datadir):
 def make_failure_yaml(datadir):
 
     # Create yaml file name
-    failure_fname = r"mission_summary_metadata.yaml"
+    failure_fname = r"mission_failure_metadata.yaml"
 
     # Create the full file path
     file_path = os.path.join(datadir, failure_fname)
