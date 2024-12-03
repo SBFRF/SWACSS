@@ -20,7 +20,7 @@ import argparse, logging
 
 from mission_yaml_files import make_summary_yaml, make_failure_yaml
 
-__version__ = 0.2
+__version__ = 0.3
 def parse_args(__version__):
     parser = argparse.ArgumentParser(f"PPK processing for yellowfin (V{__version__})", add_help=True)
     # datadir, geoid, makePos = True, verbose = 1
