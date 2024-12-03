@@ -6,6 +6,21 @@ import os
 # Mission Summary YAML File
 def make_summary_yaml(datadir):
 
+    # Create yaml file name
+    mission_summary_fname = r"mission_summary_metadata.yaml"
+
+    # Create the full file path
+    file_path = os.path.join(datadir, mission_summary_fname)
+
+    # First, check to see if file already exists; if so, decide if you want to overwrite it
+    if os.path.exists(file_path):
+        overwrite = input("File already exists. Do you want to overwrite it? (y/n): ")
+        if overwrite.strip().lower() == "y":
+            print("File will be overwritten.")
+        else:
+            print("File will not be overwritten. Exiting function.")
+            exit()  # exit make_summary_yaml.py
+
     # Initialize a dictionary with four pre-defined keys and empty values
     mission_metadata = {
         "frf": "",
@@ -25,7 +40,7 @@ def make_summary_yaml(datadir):
 
     # Prompt the user to enter a value for each key, organize into dictionary object
     print('# Populate mission summary YAML file by answering the following questions:')
-    for i, key in enumerate(mission_metadata.keys()):     # Could stand to include some error catches here to make sure user only enters "y","n", or an integer
+    for i, key in enumerate(mission_metadata.keys()):
         if i == 3 and mission_metadata["repeat"].strip().lower() == "n":
             # Skip last question if answer to "did you repeat" is "n"
             mission_metadata[key] = ""
@@ -47,42 +62,38 @@ def make_summary_yaml(datadir):
     # Define the preamble text
     preamble = "# This is a YAML file containing a dictionary of user responses to the following questions about the mission:\n" + "\n".join(f"#     {item}" for item in mission_questions) + "\n"
 
-    # Create yaml file and write dictionary to it
-    mission_summary_fname = r"mission_summary_metadata.yaml"
 
-    # Create the full file path
-    file_path = os.path.join(datadir, mission_summary_fname)
-
-    if os.path.exists(file_path):
-        # Check to see if file already exists, decide if you want to overwrite
-        overwrite = input("File already exists. Do you want to overwrite it? (y/n): ")
-        if overwrite.strip().lower() == "y":
-            with open(file_path, "w") as file:
-                # Write the preamble text
-                file.write(preamble)
-                # Write the dictionary as YAML
-                yaml.dump(mission_metadata, file)
-                # Write the optional notes
-                file.write(user_notes)
-                print("Responses written to", mission_summary_fname, "in mission directory")
-        else:
-            print("File not overwritten.")
-    else:
-        # File does not exist, proceed with writing file
-        with open(file_path, "w") as file:
-            # Write the preamble text
-            file.write(preamble)
-            # Write the dictionary as YAML
-            yaml.dump(mission_metadata, file)
-            # Write the optional notes
-            file.write(user_notes)
-        print("Responses written to", mission_summary_fname, "in mission directory")
+    # Write the dictionary to YAML file
+    with open(file_path, "w") as file:
+        # Write the preamble text
+        file.write(preamble)
+        # Write the dictionary as YAML
+        yaml.dump(mission_metadata, file)
+        # Write the optional notes
+        file.write(user_notes)
+    print("Responses written to", mission_summary_fname, "in mission directory")
 
 
 ########################################################################################################################
 
 # # Mission Failure YAML File
 def make_failure_yaml(datadir):
+
+    # Create yaml file name
+    failure_fname = r"mission_summary_metadata.yaml"
+
+    # Create the full file path
+    file_path = os.path.join(datadir, failure_fname)
+
+    # First, check to see if file already exists; if so, decide if you want to overwrite it
+    if os.path.exists(file_path):
+        overwrite = input("File already exists. Do you want to overwrite it? (y/n): ")
+        if overwrite.strip().lower() == "y":
+            print("File will be overwritten.")
+        else:
+            print("File will not be overwritten. Exiting function.")
+            exit()  # exit make_failure_yaml.py
+
 
    # Initialize a dictionary with four pre-defined keys and empty values
     failure_metadata = {
@@ -105,7 +116,7 @@ def make_failure_yaml(datadir):
     print('# Populate mission failure YAML file by answering the following questions:')
 
     failure_comments = ""     # Create empty notes string
-    for i, key in enumerate(failure_metadata.keys()):     # Could stand to include some error catches here to make sure user only enters "y","n", or an integer
+    for i, key in enumerate(failure_metadata.keys()):
         if i > 0 and failure_metadata["mission_failure"].strip().lower() == "n":
             break
         failure_metadata[key] = input(failure_questions[i]).strip().lower()
@@ -126,37 +137,20 @@ def make_failure_yaml(datadir):
     # Define the preamble text
     preamble = "# This is a YAML file containing a dictionary of user responses to the following questions about the mission:\n" + "\n".join(f"#     {item}" for item in failure_questions) + "\n"
 
-    # Create yaml file and write dictionary to it
+    # Create yaml file name
     failure_fname = r"mission_failure_metadata.yaml"
 
     # Create the full file path
     file_path = os.path.join(datadir, failure_fname)
 
-    if os.path.exists(file_path):
-        # Check to see if file already exists, decide if you want to overwrite
-        overwrite = input("File already exists. Do you want to overwrite it? (y/n): ")
-        if overwrite.strip().lower() == "y":
-            with open(file_path, "w") as file:
-                # Write the preamble text
-                file.write(preamble)
-                # Write the dictionary as YAML
-                yaml.dump(failure_metadata, file)
-                # Write the optional notes
-                file.write(user_notes + "\n")
-                # Write the additional comments
-                file.write(failure_comments )
-            print("Responses written to", failure_fname, "in mission directory")
-        else:
-            print("File not overwritten.")
-    else:
-        # Path does not exist, proceed with writing file
-        with open(file_path, "w") as file:
-            # Write the preamble text
-            file.write(preamble)
-            # Write the dictionary as YAML
-            yaml.dump(failure_metadata, file)
-            # Write the optional notes
-            file.write(user_notes + "\n")
-            # Write the additional comments
-            file.write(failure_comments)
-        print("Responses written to", failure_fname, "in mission directory")
+    # Write dictionary to YAML file
+    with open(file_path, "w") as file:
+        # Write the preamble text
+        file.write(preamble)
+        # Write the dictionary as YAML
+        yaml.dump(failure_metadata, file)
+        # Write the optional notes
+        file.write(user_notes + "\n")
+        # Write the additional comments
+        file.write(failure_comments)
+    print("Responses written to", failure_fname, "in mission directory")
