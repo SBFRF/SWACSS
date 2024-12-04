@@ -177,18 +177,6 @@ def make_failure_yaml(datadir):
             failure_comments = failure_comments + "\n" + "# " + input("Add comment: ")
 
 
-    # failure_comments = ""     # Create empty notes string
-    # for i, key in enumerate(failure_metadata.keys()):
-    #     if i > 0 and failure_metadata["mission_failure"].strip().lower() == "n":
-    #         break
-    #     failure_metadata[key] = input(failure_questions[i]).strip().lower()
-    #     if i == 0:
-    #         assert failure_metadata[key].strip().lower() in acceptable_answers_yesno, "User input must be 'y' or 'n'"
-    #     else:
-    #         assert isinstance(failure_metadata[key], int), "User input must be an integer"
-    #     if i > 0 and failure_metadata[key] != '0':
-    #         failure_comments = failure_comments + "\n" + "# " + input("Add comment: ")
-
     # Prompt the user to enter any additional notes
     user_notes_prompt = input("Optional -- Enter any additional notes (hit enter to continue): ")
     if not user_notes_prompt:
