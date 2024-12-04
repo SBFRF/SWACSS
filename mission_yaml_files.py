@@ -140,9 +140,9 @@ def make_failure_yaml(datadir):
 
     failure_questions = [
         "Was there any kind of mission failure? (y/n): ",
-        "Enter category of mechanical failure -- 0=no mechanical failure, 1=something broke but mission was still accomplished, 2=vehicle rescue required: ",
-        "Enter category of quality failure -- 0=no data failure, 1=data failure: ",
-        "Enter category of condition failure -- 0=no conditions failure, 1=comms, 2=hydrodynamic (i.e. breakpoint), 3=environmental (i.e. biofouling): "
+        "Enter category of mechanical failure -- \n   0=no mechanical failure, \n   1=something broke but mission was still accomplished, \n   2=vehicle rescue required: ",
+        "Enter category of quality failure -- \n   0=no data failure, \n   1=data failure: ",
+        "Enter category of condition failure -- \n   0=no conditions failure, \n   1=comms, \n   2=hydrodynamic (i.e. breakpoint), \n   3=environmental (i.e. biofouling): "
     ]
 
 
@@ -196,8 +196,11 @@ def make_failure_yaml(datadir):
     else:
         user_notes = "\n" + "# Additional User Notes: " + user_notes_prompt
 
+    # Remove newline characters from each string in questions list
+    failure_questions_nonewline = [item.replace("\n   ", "") for item in failure_questions]
+
     # Define the preamble text
-    preamble = "# This is a YAML file containing a dictionary of user responses to the following questions about the mission:\n" + "\n".join(f"#     {item}" for item in failure_questions) + "\n"
+    preamble = "# This is a YAML file containing a dictionary of user responses to the following questions about the mission:\n" + "\n".join(f"#     {item}" for item in failure_questions_nonewline) + "\n"
 
     # Create yaml file name
     failure_fname = r"mission_failure_metadata.yaml"
