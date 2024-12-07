@@ -18,7 +18,9 @@ import tqdm
 from testbedutils import geoprocess
 import argparse, logging
 
-__version__ = 0.2
+from mission_yaml_files import make_summary_yaml, make_failure_yaml
+
+__version__ = 0.3
 def parse_args(__version__):
     parser = argparse.ArgumentParser(f"PPK processing for yellowfin (V{__version__})", add_help=True)
     # datadir, geoid, makePos = True, verbose = 1
@@ -415,6 +417,13 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
             hf.create_dataset('Profile_number', data=data['Profile_number'])
+
+
+    # Make mission summary YAML based on user prompted inputs, write to datadir
+    make_summary_yaml(datadir)
+
+    # Make mission failure YAML based on user prompted inputs, write to datadir
+    make_failure_yaml(datadir)
 
 
 if __name__ == "__main__":
