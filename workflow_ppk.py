@@ -2,11 +2,9 @@ import os
 import sys
 import matplotlib
 from scipy import interpolate, signal
-
 import py2netCDF
-
 matplotlib.use('TkAgg')
-import yellowfinLib
+
 import datetime as DT
 from matplotlib import pyplot as plt
 import numpy as np
@@ -17,6 +15,8 @@ import zipfile
 import tqdm
 from testbedutils import geoprocess
 import argparse, logging
+import yellowfinLib
+
 
 from mission_yaml_files import make_summary_yaml, make_failure_yaml
 
@@ -86,6 +86,12 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         sonar_confidence = smoothed_sonar_confidence
         bathy_report = sonar_method
         time_sync = sonar_method
+    elif sonar_method == 'percentile':
+        sonar_confidence = 1
+        bathy_report = sonar_method
+        time_sync = 'instant'
+    else:
+        raise('not registering sonar method')
 
     logging.info(f"procesing prameters:  sonar time sync method {time_sync}")
     logging.info(f"procesing prameters:  bathy sonar method {bathy_report}")
@@ -234,8 +240,19 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     elif sonar_method == 'instant':
         sonar_range = sonarData['this_ping_depth_m']
         qualityLogic = sonarData['this_ping_depth_measurement_confidence'] > instant_sonar_confidence
+    elif sonar_method == 'percentile':
+        ofname = os.path.join(plotDir, 'Sonar_Filtered_depths.png')
+        filtered_bottom_min, min_depths, max_depths, filtered_bottom_max = yellowfinLib.find_bottom_percentile(sonarData['profile_data'],
+                                                          percentile_threshold=98, kernal_size=21,
+                                                          sav_gol_poly=3, sav_gol_window=200, ofname=ofname)
+        sonarData['percentile_min_depth'] = min_depths/100
+        sonarData['percentile_max_depth'] = max_depths/100
+        sonarData['percentile_smooth_max_depth'] = filtered_bottom_max/100
+        sonarData['percentile_smooth_min_depth'] = filtered_bottom_min/100
+        sonar_range = min_depths / 100
+        qualityLogic = np.ones_like(sonarData['time'], dtype=bool) # mark all the data good for now
     else:
-        raise ValueError('acceptable sonar methods include ["instant", "smooth"]')
+        raise ValueError('acceptable sonar methods include ["default", "instant", "smooth"]')
     # use the above to adjust whether you want smoothed/filtered data or raw ping depth values
 
     ofname = os.path.join(plotDir, 'SonarBackScatter.png')
@@ -350,6 +367,10 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
                     elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
                                           sonarData['this_ping_depth_m'][idxTimeMatchSonar]
                     sonar_out[tidx] = sonarData['this_ping_depth_m'][idxTimeMatchSonar]
+                elif sonar_method == 'percentile':
+                    elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
+                                          sonarData['percentile_min_depth'][idxTimeMatchSonar]
+                    sonar_out[tidx] = sonarData['percentile_min_depth'][idxTimeMatchSonar]
                 else:
                     raise ValueError('acceptable sonar methods include ["default", "instant", "smooth"]')
 
@@ -410,6 +431,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         hf.create_dataset('sonar_instant_depth', data=sonar_instant_depth_out[idxDataToSave])
         hf.create_dataset('sonar_instant_confidence', data=sonar_instant_confidence_out[idxDataToSave])
         hf.create_dataset('sonar_backscatter_out', data=sonar_backscatter_out[idxDataToSave])
+        hf.create_dataset('sonar_percentile_range_out', data= sonarData['percentile_min_depth'][idxDataToSave])
         hf.create_dataset('bad_lat', data=bad_lat_out)
         hf.create_dataset('bad_lon', data=bad_lon_out)
         hf.create_dataset('sonar_depth_bin', data=sonarData['range_m'])
