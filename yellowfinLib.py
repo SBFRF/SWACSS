@@ -17,7 +17,7 @@ import tqdm
 import wget
 from matplotlib import pyplot as plt
 from rasterio import plot as rplt
-from testbedutils import geoprocess
+# from testbedutils import geoprocess
 from scipy import signal
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
@@ -1250,12 +1250,14 @@ def find_bottom_percentile(sonar_bs, sav_gol_poly:int =3, sav_gol_window:int=200
                            percentile_threshold:float = 98, ofname=False):
     """Finds the bottom of from the sonar backscatter by first filering with a median blur filter. then it will take
     the min/max range values in the water column that are greater than the percentile_threshold
-    sonar_bs: sonar backscatter dimensioned [time x depth]
-    sav_gol_poly: the polynomial order used for the savitzky golay filter
-    sav_gol_window: window size for the savitzky golay filter
-    kernal_size: kernal size for the median blur filter
-    percental_threshold: what percentile to identify the bottom backscatter.  This is global to the whole image
-    ofname: out file name if you want to save q plot (default=False) it will not make/save a plot
+
+    Args:
+        sonar_bs: sonar backscatter dimensioned [time x depth]
+        sav_gol_poly: the polynomial order used for the savitzky golay filter
+        sav_gol_window: window size for the savitzky golay filter
+        kernal_size: kernal size for the median blur filter
+        percental_threshold: what percentile to identify the bottom backscatter.  This is global to the whole image
+        ofname: out file name if you want to save q plot (default=False) it will not make/save a plot
 
     Returns:
             filtered_bottom_min, min_depths, max_depths, filtered_bottom_max
