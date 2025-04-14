@@ -7,7 +7,6 @@ import struct
 import threading
 import time
 import logging
-
 import h5py
 import netCDF4 as nc
 import numpy as np
@@ -88,6 +87,132 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
         plt.close()
 
     return T_ppk
+
+
+def loadSonar_ectd032_ascii(flist: list, h5_ofname: str, of_plot=None):
+    # QA/QC plot for MF sonar
+
+    backscatter_total, metadata_total = [], []
+
+    for fname_1 in flist:
+        with open(fname_1, 'r', encoding="utf-8") as fid:
+            backscatter_fname1, metadata_fname1 = [], []
+            counter = 0  # count number of dashed lines to mark end of header
+            for ll, line in enumerate(fid):
+                line = line.strip()
+                # print(ll, line)
+                split_line = line.split(',')
+                # if counter == 2 and ll%2==0:
+                if len(split_line) == 6:
+                    metadata_fname1.append(line.split(','))
+                elif len(split_line) > 6:
+                    backscatter_fname1.append(line.split(','))
+                    # backscatter = np.array(line.split(','), dtype=int)
+                elif counter == 2 and ll % 2 == 1:
+                    metadata_fname1.append(line.split(','))
+                elif line.startswith('-----'):
+                    counter += 1
+                elif line.startswith("#Tx_Frequency"):
+                    static_stuff = fid.readline().strip().split(',')
+                    tx_freq_hz = int(static_stuff[0])
+                    range_m = float(static_stuff[1])
+                    interval_dt_s = float(static_stuff[2])
+                    threshold_per = float(static_stuff[3]) / 100
+                    offset_m = float(static_stuff[4])
+                    deadzone_m = float(static_stuff[5])
+                    pulse_length_uks = float(static_stuff[6])
+                    tx_power_db = float(static_stuff[7])
+                    tvg_gain = float(static_stuff[8])
+                    tvg_slope = float(static_stuff[9])
+                    tvg_mode = float(static_stuff[10])
+                    output_mode = int(static_stuff[11])
+            # print(metadata)
+            meta_header = metadata_fname1[0]
+            metadata = np.array(metadata_fname1[1:], dtype=float)
+            backscatter_header = backscatter_fname1[:2]
+            backscatter = np.array(backscatter_fname1[2:], dtype=int)
+        # now append recent data to total data
+        if len(backscatter_fname1) > 0:
+            # print(f'tada _ loaded {fname_1}, shape: {np.array(backscatter_fname1).shape}')
+            backscatter_total.append(backscatter)
+            metadata_total.append(metadata)
+    # convert back to total arrays
+    backscatter_total = np.vstack(backscatter_total, dtype=int)
+    metadata_total = np.vstack(metadata_total, dtype=float)
+    depth_m = np.zeros_like(backscatter_total[:, 1])
+    if np.size(metadata_fname1) != 0:  # this is to catch a data set that didn't print headers
+        # log time varying metadata
+        time_work_s = metadata_total[:, 0]
+        ping_number = metadata_total[:, 1]
+        depth_m = metadata_total[:, 2]
+        temp_degc = metadata_total[:, 3]
+        roll_deg = metadata_total[:, 4]
+        pitch_deg = metadata_total[:, 5]
+        # now log meta data to variables (static for collection)
+        tx_freq_hz = int(backscatter_header[1][0])
+        range_m = float(backscatter_header[1][1].strip())
+        interval_dt_s = float(backscatter_header[1][2].strip())
+        threshold_per = float(backscatter_header[1][3].strip())
+        offset_m = float(backscatter_header[1][4].strip())
+        deadzone_m = float(backscatter_header[1][5].strip())
+        pulse_length_uks = float(backscatter_header[1][6].strip())
+        tx_power_db = float(backscatter_header[1][7].strip())
+        tvg_gain = float(backscatter_header[1][8].strip())
+        tvg_slope = float(backscatter_header[1][9].strip())
+        tvg_mode = float(backscatter_header[1][10].strip())
+        output_mode = int(backscatter_header[1][11].strip())
+        bin_size = range_m / np.shape(backscatter_total)[1]
+
+    if of_plot is not None:
+        # now plot all data
+        # plt.figure(figsize=(12,8))
+        plt.figure(figsize=(22, 8))
+        plt.pcolormesh(backscatter_total.T)
+        # norm=colors.LogNorm(vmin=.0001, vmax=backscatter_total.max()))
+        plt.plot(depth_m / bin_size, 'r:', alpha=0.4, label='OEM depth')
+        plt.ylabel('bin count')
+        plt.xlabel('time (s)')
+        plt.title(f"data collected: {fname_1.split('/')[-2]}")
+        cbar = plt.colorbar()
+        cbar.set_label('backscatter')
+        plt.legend(loc='upper right')
+        plt.tight_layout(rect=[0.01, 0.01, 1, 0.99])
+        plt.savefig(of_plot)
+        plt.close()
+
+    if h5_ofname is not None:
+        with h5py.File(h5_ofname, "w") as hf:
+            nans = np.ones_like(time_work_s)
+            # data that are singular valued
+            hf.create_dataset("min_pwr", data=tx_power_db)
+            hf.create_dataset("ping_duration", data=pulse_length_uks)
+            hf.create_dataset("start_mm", data=deadzone_m)
+            hf.create_dataset("length_mm", data=range_m * 1000)
+            hf.create_dataset("start_ping_hz", data=tx_freq_hz)
+            hf.create_dataset('depth_offset_m', data=offset_m)  # artificial adjustment to range/depth
+            # data dimensioned by time
+            hf.create_dataset("time", data=time_work_s)
+            hf.create_dataset("ping_count", data=ping_number)
+            hf.create_dataset("temp_degc", data=temp_degc)
+            hf.create_dataset("pitch_deg", data=pitch_deg)
+            hf.create_dataset("roll_deg", data=roll_deg)
+            hf.create_dataset("smooth_depth_m", data=depth_m)
+            hf.create_dataset("profile_data", data=backscatter_total)  # putting time as first axis
+            hf.create_dataset("end_ping_hz", data=tx_freq_hz)
+            hf.create_dataset("this_ping_depth_m", data=depth_m)
+            hf.create_dataset("timestamp_msec", data=time_work_s - time_work_s[0])
+            hf.create_dataset("range_m", data=range_m)
+            # below are semi-confident guesses
+            hf.create_dataset("num_results", data=np.arange(np.shape(backscatter_total)[1]))
+            hf.create_dataset("adc_sample_hz", data=interval_dt_s)
+            hf.create_dataset("analog_gain", data=tx_power_db)
+            hf.create_dataset("max_pwr", data=tx_power_db)
+
+            # data that are nans (established as pre-existing)
+            hf.create_dataset("gain_index", data=nans)
+            hf.create_dataset("decimation", data=nans)
+            hf.create_dataset("this_ping_depth_measurement_confidence", data=nans)
+            hf.create_dataset("smoothed_depth_measurement_confidence", data=nans)
 
 
 def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
