@@ -197,13 +197,13 @@ def loadSonar_ectd032_ascii(flist: list, h5_ofname: str, of_plot=None):
             hf.create_dataset("pitch_deg", data=pitch_deg)
             hf.create_dataset("roll_deg", data=roll_deg)
             hf.create_dataset("smooth_depth_m", data=depth_m)
-            hf.create_dataset("profile_data", data=backscatter_total)  # putting time as first axis
+            hf.create_dataset("profile_data", data=backscatter_total.T)  # putting time as first axis
             hf.create_dataset("end_ping_hz", data=tx_freq_hz)
             hf.create_dataset("this_ping_depth_m", data=depth_m)
             hf.create_dataset("timestamp_msec", data=time_work_s - time_work_s[0])
             hf.create_dataset("range_m", data=range_m)
             # below are semi-confident guesses
-            hf.create_dataset("num_results", data=np.arange(np.shape(backscatter_total)[1]))
+            hf.create_dataset("num_results", data=np.arange(np.shape(backscatter_total)[1])) # number of range bin
             hf.create_dataset("adc_sample_hz", data=interval_dt_s)
             hf.create_dataset("analog_gain", data=tx_power_db)
             hf.create_dataset("max_pwr", data=tx_power_db)
