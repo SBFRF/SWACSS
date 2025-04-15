@@ -2,9 +2,7 @@ import os
 import sys
 import matplotlib
 from scipy import interpolate, signal
-
 import py2netCDF
-
 matplotlib.use('TkAgg')
 import yellowfinLib
 import datetime as DT
@@ -16,7 +14,7 @@ import glob
 import zipfile
 import tqdm
 from testbedutils import geoprocess
-import argparse, logging
+import argparse, logging, yaml
 
 __version__ = 0.2
 def parse_args(__version__):
@@ -27,6 +25,9 @@ def parse_args(__version__):
                         help="[REQUIRED] directory of data that are to be processed",
                         required=True)
 
+
+    parser.add_argument('--config', type=str, required=False, default=None,
+                        help="YAML config file, will overwrite all other arguments in CLI")
 
 
     # Command-Line Interface: (OPTIONAL) Flags
@@ -54,6 +55,33 @@ def parse_args(__version__):
     return parser.parse_args()
 
 
+def parse_config_yaml(fname):
+    """Load configuration from YAML file."""
+    with open(fname, 'r') as file:
+        return yaml.safe_load(file)
+
+
+def update_namespace_from_dict(namespace, updates):
+    """
+    Update an argparse.Namespace with values from a dictionary if they differ.
+
+    Parameters:
+        namespace (argparse.Namespace): The namespace to update.
+        updates (dict): A dictionary of key-value pairs to update in the namespace.
+
+    Returns:
+        argparse.Namespace: The updated namespace.
+    """
+    for key, new_value in updates.items():
+        # If the key exists, compare values; if not, add it.
+        if hasattr(namespace, key):
+            current_value = getattr(namespace, key)
+            if current_value != new_value:
+                setattr(namespace, key, new_value)
+        else:
+            setattr(namespace, key, new_value)
+    return namespace
+
 def verbosity_conversion(verbose: int):
     if verbose == 1:
         logging.basicConfig(level=logging.DEBUG)
@@ -64,11 +92,15 @@ def verbosity_conversion(verbose: int):
     else:
         raise EnvironmentError('logging verbosity is wrong!')
 
+
 def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib_executable_path = 'ref/rnx2rtkp',
-         ppk_quality_threshold=1, instant_sonar_confidence = 99, smoothed_sonar_confidence = 60):
+         ppk_quality_threshold=1, instant_sonar_confidence = 99, smoothed_sonar_confidence = 60, yaml_config=None):
 
     verbosity_conversion(verbose)
-    antenna_offset = 0.25  # meters between the antenna phase center and sounder head - default for yellowfin
+    # unpack yaml configuration
+    antenna_offset = yaml_config.get('gnss_antenna_offset_m', 0.25)   # meters between the antenna phase center and sounder head - default for yellowfin
+    sonar_model = yaml_config['sonar'].get('sonar_model', False)
+
 
     #  date that Pi computer was changed to UTC time (will adjust timezone manually before this date)
     yellowfin_clock_reset_date = DT.datetime(2023, 7,10)  # do not adjust this date!
@@ -97,9 +129,6 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     timeString = os.path.basename(datadir)
     plotDir = os.path.join(datadir, 'figures')
     os.makedirs(plotDir, exist_ok=True)  # make folder structure if its not already made
-    argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
-                                                      DT.timedelta(hours=14),
-                                                      ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),)
 
     # sonar data
     fpathSonar = os.path.join(datadir, 's500')  # reads sonar from here
@@ -118,11 +147,16 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     logging.debug(f"saving intermediate files for sonar here: {saveFnameSonar}")
     logging.debug(f"saving intermediate files for sonar here: {saveFnamePPK}")
     logging.debug(f"saving intermediate files for GNSS here: {saveFnameGNSS}")
-    ## load files
-    if not os.path.isfile(saveFnameSonar):
-        yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
+    if sonar_model in ['s500']:
+        ## load files
+        if not os.path.isfile(saveFnameSonar):
+            yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
+        else:
+            logging.info(f'Skipping {saveFnameSonar}')
+    elif sonar_method in ['d032', 'ect-d032']:
+        print('do sonar loading')
     else:
-        logging.info(f'Skipping {saveFnameSonar}')
+        raise NotImplementedError('sonar option not implmented')
     # then load NMEA files
     if not os.path.isfile(saveFnameGNSS):  # if we've already processed the GNSS file
         yellowfinLib.load_yellowfin_NMEA_files(fpathGNSS, saveFname=saveFnameGNSS,
@@ -361,12 +395,18 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     # convert the lon/lat data we care about to FRF coords
     coords = geoprocess.FRFcoord(lon_out[idxDataToSave], lat_out[idxDataToSave], coordType='LL')
 
-    FRF = yellowfinLib.is_local_to_FRF(coords)
-    if not FRF:
+    is_local_FRF = yellowfinLib.is_local_to_FRF(coords)
+
+    if not is_local_FRF:
         logging.info("identified data as NOT Local to the FRF")
+    else:
+        argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
+                                                          DT.timedelta(hours=14),
+                                                          ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'), )
+
     ofname = os.path.join(plotDir, 'FinalDataProduct.png')
     yellowfinLib.plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, lon_out,
-                                       lat_out, timeString, idxDataToSave, FRF)
+                                      lat_out, timeString, idxDataToSave, is_local_FRF)
 
 
     #now make data packat to save
@@ -374,7 +414,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
             'Latitude': lat_out[idxDataToSave], 'Longitude': lon_out[idxDataToSave],
             'Northing': coords['StateplaneN'], 'Easting': coords['StateplaneE'],  'Elevation': elevation_out[idxDataToSave],
             'Ellipsoid': np.ones_like(elevation_out[idxDataToSave]) * -999}
-    if FRF is True:
+    if is_local_FRF is True:
         data['xFRF'] = coords['xFRF']
         data['yFRF'] = coords['yFRF']
         data['Profile_number'] = np.ones_like(elevation_out[idxDataToSave]) * -999,
@@ -411,7 +451,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         hf.create_dataset('bad_lat', data=bad_lat_out)
         hf.create_dataset('bad_lon', data=bad_lon_out)
         hf.create_dataset('sonar_depth_bin', data=sonarData['range_m'])
-        if FRF is True:
+        if is_local_FRF is True:
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
             hf.create_dataset('Profile_number', data=data['Profile_number'])
@@ -421,10 +461,19 @@ if __name__ == "__main__":
     # filepath = '/data/yellowfin/20231109'  # 327'  # 04' #623' #705'
     args = parse_args(__version__)
     assert os.path.isdir(args.data_dir), "check your input filepath, code doesn't see the folder"
+    extra_args = None
+    if args.config is not None and args.config.endswith('.yaml'):
+        yaml_config = parse_config_yaml(args.config)
+        args = update_namespace_from_dict(args, yaml_config)
+    elif args.config is not None:
+        raise AttributeError('config file must end with .yaml')
 
+    logging.warning('The arg parsing here is kinda stupid, please fix before merge')
     main(args.data_dir, geoid=args.geoid_file, makePos=args.make_pos, verbose=args.verbosity,
          rtklib_executable_path=args.rtklib_executable, sonar_method=args.sonar_method,
          ppk_quality_threshold = args.ppk_quality_threshold,
-    smoothed_sonar_confidence = args.smoothed_sonar_confidence, instant_sonar_confidence = args.instant_sonar_confidence)
+         smoothed_sonar_confidence = args.smoothed_sonar_confidence,
+         instant_sonar_confidence = args.instant_sonar_confidence,
+         yaml_config=yaml_config)
     logging.info(f"success processing {args.data_dir}")
 
