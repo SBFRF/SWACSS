@@ -89,20 +89,42 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
     return T_ppk
 
 
-def loadSonar_ectd032_ascii(flist: list, h5_ofname: str, of_plot=None):
-    # QA/QC plot for MF sonar
+def loadSonar_ectd032_ascii(f_path_sonar: str, h5_ofname: str, verbose: bool = False, of_plot=None, high_low='low', combine=False):
 
+    flist_load = sorted(glob.glob(os.path.join(f_path_sonar, f"*{high_low}*.txt")))
+        #"/data/blueboat/2025/{date.strftime('%Y%m%d')}/ect-D032/{date.strftime('%Y-%m-%d')}/ECT-D032_{high_low}_{date.strftime('%Y%m%d')}-*.txt"))
+    if len(flist_load) == 0: # if i didn't find it first, maybe i need to unpack in a dated subfolder
+        # try to move dat files out of a folder with the same name as the base folder  in the s500 folder
+        try:
+            fldInterest = [i for i in os.listdir(f_path_sonar) if ".dat" not in i][0]
+            parts_interst = fldInterest.split("-")
+            flist = glob.glob(
+                os.path.join(f_path_sonar, fldInterest, f"{parts_interst[-1] + parts_interst[0] + parts_interst[1]}*.dat",
+                             )
+            )
+            if len(flist) < 1:  # this is the new file name (file name updated late August 2024)
+                flist = glob.glob(os.path.join(f_path_sonar, fldInterest, f"*{high_low}_{''.join(parts_interst)}*.txt"))
+            toDir = "/" + os.path.join(*flist[0].split(os.sep)[:-2])
+            [shutil.move(l, toDir) for l in flist]
+            # os.rmdir(os.path.join(dataPath, fldInterest)) # remove folder data came from
+            flist_load = sorted(glob.glob(os.path.join(f_path_sonar, f"*{high_low}*.txt")))
+
+        except:
+            raise EnvironmentError(
+                "The sounder date doesn't match folder date, or there is no data in target folder"
+            )
+
+    if verbose == 1:
+        print(f"processing {len(flist_load)} ect-d032 files data files")
     backscatter_total, metadata_total = [], []
-
-    for fname_1 in flist:
+    for fname_1 in flist_load:
         with open(fname_1, 'r', encoding="utf-8") as fid:
             backscatter_fname1, metadata_fname1 = [], []
             counter = 0  # count number of dashed lines to mark end of header
             for ll, line in enumerate(fid):
                 line = line.strip()
-                # print(ll, line)
+                if verbose == 1: logging.debug(f"{ll}, {line}")
                 split_line = line.split(',')
-                # if counter == 2 and ll%2==0:
                 if len(split_line) == 6:
                     metadata_fname1.append(line.split(','))
                 elif len(split_line) > 6:
@@ -127,7 +149,7 @@ def loadSonar_ectd032_ascii(flist: list, h5_ofname: str, of_plot=None):
                     tvg_mode = float(static_stuff[10])
                     output_mode = int(static_stuff[11])
             # print(metadata)
-            meta_header = metadata_fname1[0]
+            # meta_header = metadata_fname1[0]
             metadata = np.array(metadata_fname1[1:], dtype=float)
             backscatter_header = backscatter_fname1[:2]
             backscatter = np.array(backscatter_fname1[2:], dtype=int)
@@ -161,15 +183,15 @@ def loadSonar_ectd032_ascii(flist: list, h5_ofname: str, of_plot=None):
         tvg_slope = float(backscatter_header[1][9].strip())
         tvg_mode = float(backscatter_header[1][10].strip())
         output_mode = int(backscatter_header[1][11].strip())
-        bin_size = range_m / np.shape(backscatter_total)[1]
+        bin_size_m = range_m / np.shape(backscatter_total)[1]
+        range_m = np.linspace(0, range_m, backscatter_total.shape[1])
 
     if of_plot is not None:
         # now plot all data
-        # plt.figure(figsize=(12,8))
         plt.figure(figsize=(22, 8))
         plt.pcolormesh(backscatter_total.T)
         # norm=colors.LogNorm(vmin=.0001, vmax=backscatter_total.max()))
-        plt.plot(depth_m / bin_size, 'r:', alpha=0.4, label='OEM depth')
+        plt.plot(depth_m / bin_size_m, 'r:', alpha=0.4, label='OEM depth')
         plt.ylabel('bin count')
         plt.xlabel('time (s)')
         plt.title(f"data collected: {fname_1.split('/')[-2]}")
@@ -177,8 +199,9 @@ def loadSonar_ectd032_ascii(flist: list, h5_ofname: str, of_plot=None):
         cbar.set_label('backscatter')
         plt.legend(loc='upper right')
         plt.tight_layout(rect=[0.01, 0.01, 1, 0.99])
-        plt.savefig(of_plot)
+        plt.savefig(of_plot.split('.')[0] + f"_{high_low}.png")
         plt.close()
+
 
     if h5_ofname is not None:
         with h5py.File(h5_ofname, "w") as hf:
@@ -215,7 +238,7 @@ def loadSonar_ectd032_ascii(flist: list, h5_ofname: str, of_plot=None):
             hf.create_dataset("smoothed_depth_measurement_confidence", data=nans)
 
 
-def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
+def loadSonar_s500_binary(dataPath, h5_ofname=None, verbose=False):
     """Loads and concatenates all of the binary files (*.dat) located in the dataPath location
 
     :param dataPath: search path for sonar data files
@@ -429,8 +452,8 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     profile_data = profile_data[:idxShort, :num_results].T
 
     # now save output file (can't save as pandas because of multi-dimensional sonar data)
-    if outfname is not None:
-        with h5py.File(outfname, "w") as hf:
+    if h5_ofname is not None:
+        with h5py.File(h5_ofname, "w") as hf:
             hf.create_dataset("min_pwr", data=min_pwr)
             hf.create_dataset("ping_duration", data=ping_duration_sec)
             hf.create_dataset(
@@ -816,7 +839,7 @@ def loadPPKdata(fldrlistPPK):
     :param fldrlistPPK: a list of folders with ind
     :return: a data frame with loaded ppk data
     """
-
+    logging.log(logging.WARN, "This function is to be depricated - use load_ppk_files_list ")
     T_ppk = pd.DataFrame()
     for fldr in sorted(fldrlistPPK):
         # this is before ppk processing so should agree with nmea strings
@@ -852,6 +875,54 @@ def loadPPKdata(fldrlistPPK):
                 Tpos = Tpos.iloc[:-1]  # remove last row
             # Tpos["datetime"] = pd.to_datetime(Tpos['date'] + Tpos['time'], format="%Y/%m/%d%H:%M:%S.%f", utc=True)
             T_ppk = pd.concat([T_ppk, Tpos], ignore_index=True) # merge multiple files to single dataframe
+
+        except:  # this is in the event there is no data in the pos files
+            continue
+    T_ppk["datetime"] = pd.to_datetime(T_ppk['date'] + T_ppk['time'], format="%Y/%m/%d%H:%M:%S.%f", utc=True)
+    T_ppk["epochTime"] = T_ppk["datetime"].apply(lambda x: x.timestamp())
+    return T_ppk
+
+def load_ppk_fils_list(flist_ppk):
+    """This function loads a single *.pos file per folder from a list of folders.  Each pos file in the folder has to be
+        named the same as the folder name + .pos
+
+        :param fldrlistPPK: a list of folders with ind
+        :return: a data frame with loaded ppk data
+        """
+
+    T_ppk = pd.DataFrame()
+    for fname in sorted(flist_ppk):
+        # this is before ppk processing so should agree with nmea strings
+        try:
+            # colNames = [
+            #     "datetime",
+            #     "lat",
+            #     "lon",
+            #     "height",
+            #     "Q",
+            #     "ns",
+            #     "sdn(m)",
+            #     "sde(m)",
+            #     "sdu(m)",
+            #     "sdne(m)",
+            #     "sdeu(m)",
+            #     "sdun(m)",
+            #     "age(s)",
+            #     "ratio",
+            # ]
+            # col_widths=[(0,23), (26, 39), (40, 55), (56, 65), (66, 68), (70, 73)]
+            # try:
+            #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine="python")
+            # except ValueError:
+            #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine="python")
+            colNames = ["date", "time", "lat", "lon", "height", "Q", "ns", "sdn(m)", "sde(m)", "sdu(m)", "sdne(m)",
+                        "sdeu(m)", "sdun(m)", "age(s)", "ratio"]
+            Tpos = pd.read_fwf(fname, skiprows=12, infer_nrows=1000, names=colNames)  # fixed width reader
+            logging.info(f"loaded {fname}")
+            if all(Tpos.iloc[-1]):  # if theres nan's in the last row
+                Tpos = Tpos.iloc[:-1]  # remove last row
+            # Tpos["datetime"] = pd.to_datetime(Tpos['date'] + Tpos['time'], format="%Y/%m/%d%H:%M:%S.%f", utc=True)
+            T_ppk = pd.concat([T_ppk, Tpos], ignore_index=True)  # merge multiple files to single dataframe
 
         except:  # this is in the event there is no data in the pos files
             continue
@@ -1292,7 +1363,7 @@ def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out,
         cbar = plt.colorbar()
         cbar.set_label('depths NAVD88 [m]', fontsize=fs)
         plt.plot(T_ppk['lon'], T_ppk['lat'], 'k.', ms=0.25, label='vehicle trajectory')
-        plt.plot(bad_lon_out, bad_lat_out, 'rx', ms=3, label='bad sonar data, good GPS')
+        plt.plot(bad_lon_out, bad_lat_out, 'rx', ms=3, label='bad sonar data, good GNSS')
         if FRF == True:
             plt.plot([pierStart['Lon'], pierEnd['Lon']], [pierStart['Lat'], pierEnd['Lat']], 'k-', lw=5, label='FRF pier')
         plt.ylabel('latitude', fontsize=fs)
@@ -1301,6 +1372,7 @@ def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out,
         plt.tight_layout()
         plt.legend()
         plt.savefig(ofname)
+        plt.close()
 
 def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime,
                                sonarData, sonarIndicies, sonar_range):
@@ -1328,7 +1400,7 @@ def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, 
     plt.savefig(ofname)
 
 def is_local_to_FRF(coords):
-    return ((coords['yFRF'] < 2000) & (coords['yFRF'] > -20000)).all()
+    return ((coords['yFRF'] < 2000) & (coords['yFRF'] > -20000) & (coords['xFRF'] > 0)).all()
 
 def qaqc_time_offset_determination(ofname, pc_time_off):
     # Compare GPS data to make sure timing is ok
@@ -1364,35 +1436,46 @@ def sonar_pick_cross_correlation_time(ofname, sonar_range):
     return sonarIndicies
 
 def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk):
+
+
     # 6.6 Now lets take a look at all of our data from the different sources
     plt.figure(figsize=(10, 4))
     plt.suptitle('all data sources elevation', fontsize=20)
-    plt.title('These data need to overlap in time for processing to work')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
-             label='L1 (only) GPS elev (MSL)')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
+    plt.title('These data need to overlap in time to ensure timing is correct (some methods used for time-sync')
+    plt.plot([DT.datetime.fromtimestamp(i, tz=None) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
+    if payloadGpsData is not None:
+        plt.plot([DT.datetime.fromtimestamp(i, tz=None) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
+                 label='L1 (only) GPS elev (MSL)')
+    plt.plot([DT.datetime.fromtimestamp(i, None) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
              label='ppk elevation [NAVD88 m]')
     plt.ylim([0, 10])
     plt.ylabel('elevation [m]')
     plt.xlabel('epoch time (s)')
     plt.legend()
-    # plt.show()
     plt.savefig(ofname)
+    plt.close()
 
 def qaqc_sonar_profiles(ofname, sonarData):
-
+    # unpack dictionary
+    sonar_epoch_time = sonarData['time']
+    sonar_time = [DT.datetime.fromtimestamp(i, tz=None) for i in sonar_epoch_time]
+    sonar_depth_line_primary = sonarData['this_ping_depth_m']
+    sonar_depth_line_primary_descriptor = 'this ping Depth'
+    sonar_depth_line_secondary = sonarData['smooth_depth_m']
+    sonar_depth_line_secondary_descriptor = 'smooth Depth'
+    sonar_backscatter = sonarData['profile_data']
+    sonar_backscatter_range_m = sonarData['range_m']
+    y_lim_max = 10 if sonar_backscatter_range_m.max() > 10 else sonar_backscatter_range_m.max()
+    ################################################################3
     plt.figure(figsize=(18, 6))
-    cm = plt.pcolormesh([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['range_m'],
-                        sonarData['profile_data'])
+    cm = plt.pcolormesh(sonar_time, sonar_backscatter_range_m, sonar_backscatter)
     cbar = plt.colorbar(cm)
     cbar.set_label('backscatter')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=0.1,
-             label='this ping Depth')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=0.5,
-             label='smooth Depth')
-    plt.ylim([10, 0])
+    plt.plot(sonar_time, sonar_depth_line_primary, 'r-', lw=0.1, label=sonar_depth_line_primary_descriptor)
+    plt.plot(sonar_time, sonar_depth_line_secondary, 'k-', lw=0.5, label=sonar_depth_line_secondary_descriptor)
+    plt.ylim([y_lim_max, 0])
     plt.legend(loc='lower left')
     # plt.gca().invert_yaxis()
     plt.tight_layout(rect=[0.05, 0.05, 0.99, 0.99], w_pad=0.01, h_pad=0.01)
     plt.savefig(ofname)
+    plt.close()
