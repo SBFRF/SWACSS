@@ -7,6 +7,8 @@ import struct
 import threading
 import time
 import logging
+import warnings
+
 import h5py
 import netCDF4 as nc
 import numpy as np
@@ -956,7 +958,7 @@ def unpackYellowfinCombinedRaw(fname):
     return data
 
 
-def plotPlanViewOnArgus(data, geoTifName, ofName=None):
+def plot_plan_view_on_argus(data, geoTifName, ofName=None):
     """plots a survey path over a geotiff at the FRF (assumes NC stateplane)
     Args:
         data: this is a dictionary of data loaded with keys of 'longitude', 'latitude', 'elevation'
@@ -969,19 +971,21 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
     """
     coords = geoprocess.FRFcoord(data["Longitude"], data["Latitude"])
     tt = 0
-    while not os.path.isfile(
-        geoTifName
-    ):  # this is waiting for the file to show up, if the download is threaded
-        time.sleep(30)
-        tt += 30
-        print(f"waited for {tt} seconds for {geoTifName}")
+    if geoTifName is not None:
+        while not os.path.isfile(
+            geoTifName
+            ):  # this is waiting for the file to show up, if the download is threaded
+            time.sleep(30)
+            tt += 30
+            print(f"waited for {tt} seconds for {geoTifName}")
 
-    timex = rasterio.open(geoTifName)
+        timex = rasterio.open(geoTifName)
     # array = timex.read()  # for reference, this pulls the image data out of the geotiff object
     ## now make plot
     plt.figure(figsize=(14, 10))
     ax1 = plt.subplot()
-    aa = rplt.show(timex, ax=ax1)
+    if geoTifName is not None:
+        aa = rplt.show(timex, ax=ax1)
     a = ax1.scatter(coords["StateplaneE"], coords["StateplaneN"], c=data["Elevation"], vmin=-8)
     cbar = plt.colorbar(a)
     cbar.set_label("depths")
@@ -1052,13 +1056,21 @@ def threadGetArgusImagery(dateOfInterest, ofName=None, imageType="timex", verbos
     return ofName
 
 
-def transectSelection(data, **kwargs):
-    """
+def is_local_to_FRF(coords):
+    """Function to define if data are within the FRF surf size"""
+    return ((coords['yFRF'] < 2500) & (coords['yFRF'] > -2500) & (coords['xFRF'] > 0)).all()
+
+def transect_selection_tool(data, **kwargs):
+    """ Function takes data and allws user to QA/QC/ assign profile lines
+
     Args:
         data: dataframe containing crawler transect data, to be modified with isTransect and profileNumber columns
 
     Keyword Args:
-        'outputDir': this is the output directory for the file name save
+        'outputDir': this is the output directory for the file name save (default=current directory))
+        'savePlots': turns save plot of the final product on/off (Default = True)
+        'currrent_progress_plots':  shows a plot after each line selected (Default=False)
+
     Returns:
         data: input dataframe with columns isTransect and profileNumber added, isTransect is a boolean denoting
         whether a point is part of a transect, profileNumber is a float to designate the transect a point is a part of
@@ -1067,6 +1079,7 @@ def transectSelection(data, **kwargs):
     """
     outputDir = kwargs.get("outputDir", os.getcwd())
     plotting = kwargs.get("savePlots", True)
+    current_progress = kwargs.get('current_progress_plots', False) # show a plot after selection of a line
     # added columns for isTransect boolean and profileNumber float to data dataframe
     data["isTransect"] = [False] * data.shape[0]
     data["profileNumber"] = [float("nan")] * data.shape[0]
@@ -1077,8 +1090,10 @@ def transectSelection(data, **kwargs):
     prevData = data.copy(deep=True)
     # main loop for identifying transects, continues to allow for selections while user inputs y/Y
     transectIdentify = input("Do you want to select a transect? (Y/N):")
+
     while transectIdentify.lower() == "y" or transectIdentify.lower() == "u":
         if transectIdentify.lower() == "y":
+
             pointsValid = True
             print(
                 "To identify a transect, please place a single point at the start and end of the transect with left click"
@@ -1096,64 +1111,82 @@ def transectSelection(data, **kwargs):
             )
             print("Select the transect using only 1 graph at a time")
             # displays plots of two subplots, one with x vs y colored in time and one with time vs y colored in x
-            fig = plt.figure()
+            fig = plt.figure(figsize=(18,8))
             fig.suptitle("Transects xFRF (top) and time (bottom) vs yFRF ")
             shape = (4, 6)
 
             ax0 = plt.subplot2grid(shape, (0, 0), colspan=2, rowspan=5)
-            ax0.scatter(dispData["xFRF"], dispData["yFRF"], c=dispData["time"], cmap="hsv", s=1)
+            # ax0.plot(data['xFRF'], data['yFRF'], 'k.', ms=0.5, zorder=1)
+            # ax0.plot(currTransect["xFRF"], currTransect["yFRF"], 'k.', ms=0.5, zorder=1)
+            ax0.scatter(dispData["xFRF"], dispData["yFRF"], c=dispData["time"], cmap="hsv", s=1, zorder=10)
             ax0.set(xlabel="xFRF [m]", ylabel="yFRF [m]")
 
             ax1 = plt.subplot2grid(shape, (0, 2), colspan=6, rowspan=2)
+            # ax1.plot(data['UNIX_timestamp'], data['xFRF'], 'k.', ms=0.5, zorder=1)
             ax1.scatter(
-                dispData["UNIX_timestamp"], dispData["xFRF"], c=dispData["yFRF"], cmap="hsv", s=1
+                dispData["UNIX_timestamp"], dispData["xFRF"], c=dispData["yFRF"], cmap="hsv", s=1, zorder=10
             )
             ax1.set(xlabel="UNIX Timestamp (seconds)", ylabel="xFRF (m)")
+
             ax2 = plt.subplot2grid(shape, (2, 2), colspan=6, rowspan=2, sharex=ax1)
+            ax2.set_title('Do not pick from this plot w/o adjusting code')
             ax2.scatter(
                 dispData["UNIX_timestamp"], dispData["yFRF"], c=dispData["yFRF"], cmap="hsv", s=1
             )
+            ax2.text(dispData['UNIX_timestamp'].mean(), dispData["yFRF"].mean(), "don't use this plot",
+                     ha='center', va='center', fontsize=15)
+            # ax2.plot(np.linspace(dispData['UNIX_timestamp'].min(), dispData['UNIX_timestamp'].max()),
+            #          np.linspace(0, 1500), 'r-', lw=10)
+            # ax2.plot(np.linspace(dispData['UNIX_timestamp'].min(), dispData['UNIX_timestamp'].max()),
+            #          np.linspace(1500, 0), 'r-', lw=10)
+
+            # ax2.plot([dispData['UNIX_timestamp'].min(), dispData['yFRF'].max()],
+            #          [dispData['UNIX_timestamp'].max(), dispData['yFRF'].min()], 'r-')
             ax2.set(xlabel="UNIX Timestamp (seconds)", ylabel="yFRF (m)")
+            # ax2.set_xlim([dispData['UNIX_timestamp'].min(), dispData['yFRF'].min()])
             plt.tight_layout()
-            nodes = plt.ginput(-1, 0)
-            print("Selected Points: ")
-            print(nodes)
+            selected_points = plt.ginput(-1, 0)
+            print(f"Selected Points: {selected_points}")
             plt.close()
             # ginput returns list of tuples of selected coordinates, each is in its graph's proper scale
-            if len(nodes) == 2:
+            if len(selected_points) == 2:
                 prevDisp = dispData.copy(deep=True)
                 prevData = data.copy(deep=True)
-                # false means ycoord is yFRF, true means UNIX Timestamp
-                isTime = [False, False]
-                isTime[0] = nodes[0][0] > 1500
-                isTime[1] = nodes[1][0] > 1500
-                if isTime[0] == isTime[1]:
-                    endpts = []
+                # false means ycoord from the plot is yFRF, true means UNIX Timestamp
+                is_first_point_time = [False, False]
+                is_first_point_time[0] = selected_points[0][0] > 15000  # we expect FRF coord values to be < 1500
+                is_first_point_time[1] = selected_points[1][0] > 15000  # we expect FRF coord values to be < 1500
+                if is_first_point_time[0] == is_first_point_time[1]:
+                    endpts_xFRF_yFRF = []
                     # each node is matched to the closest point in the dispData dataframe
-                    for x in range(len(nodes)):
-                        curr = nodes[x]
-                        prevDist = float("inf")
-                        closest = tuple()
-                        for y in range(dispData.shape[0]):
-                            if isTime[x]:
-                                dist = np.sqrt(
-                                    (dispData["UNIX_timestamp"][y] - curr[0]) ** 2
-                                    + (dispData["yFRF"][y] - curr[1]) ** 2
-                                )
-                            else:
-                                dist = np.sqrt(
-                                    (dispData["yFRF"][y] - curr[1]) ** 2
-                                    + (dispData["xFRF"][y] - curr[0]) ** 2
-                                )
-                            if dist < prevDist:
-                                prevDist = dist
-                                closest = (dispData["xFRF"][y], dispData["yFRF"][y])
-                        endpts.append(closest)
 
+                    for x in range(len(selected_points)):
+                        current_point_tuple = selected_points[x]
+                        if is_first_point_time[x]:
+                            arg_key = "UNIX_timestamp"
+                            dist_list = np.sqrt((dispData[arg_key] - current_point_tuple[0]) ** 2 + (
+                                                dispData["xFRF"] - current_point_tuple[1]) ** 2
+                                               )
+                        else:
+                            arg_key = 'xFRF'
+                            dist_list = np.sqrt((dispData[arg_key] - current_point_tuple[0]) ** 2 + (
+                                                dispData["yFRF"] - current_point_tuple[1]) ** 2
+                                               )
+
+                        idx_min_dist = dist_list.argmin()
+                        endpts_xFRF_yFRF.append((dispData["xFRF"][idx_min_dist], dispData["yFRF"][idx_min_dist]))
+
+                        logging.debug(f"1st term (x) {(dispData[arg_key] - current_point_tuple[0]).min():.2f}")
+                        logging.debug(f"2nd term (y) {(dispData['yFRF'] - current_point_tuple[1]).min():.2f}")
+                        logging.debug(f"sqrt = {np.sqrt((dispData[arg_key] - current_point_tuple[0]).min()**2 + (dispData['yFRF'] - current_point_tuple[1]).min())}")
+                        logging.debug(f"identified point in plot {current_point_tuple}\n                    "
+                                      f"data identified {dispData['UNIX_timestamp'][idx_min_dist], endpts_xFRF_yFRF[-1]}"
+                                      f"\n                  at distance {dist_list.min():.2f}")
+                        logging.debug(f'selected from: {arg_key}')
                     # identify endpoints within dispdata frame
                     isEndPt = []
                     for x in range(dispData.shape[0]):
-                        if (dispData["xFRF"][x], dispData["yFRF"][x]) in endpts:
+                        if (dispData["xFRF"][x], dispData["yFRF"][x]) in endpts_xFRF_yFRF:
                             isEndPt.append(True)
                         else:
                             isEndPt.append(False)
@@ -1214,28 +1247,30 @@ def transectSelection(data, **kwargs):
                         data.loc[x + firstI, "isTransect"] = True
                 else:
                     # ignore selected points if from different plots
-                    print("Selected points from different plots. Discarding selected points.")
+                    logging.warning("Selected points from different plots. Discarding selected points.")
                     pointsValid = False
             else:
                 # ignore selected points if more or less than 2 selected
-                print("Selected more or less than 2 points. Discarding selected points.")
+                logging.warning("Selected more or less than 2 points. Discarding selected points.")
                 pointsValid = False
 
             # display selected transects overlayed over all points, colored by profile number
-            print("Displaying current progress. Close the window to continue.")
+            logging.info("Displaying current progress. Close the window to continue.")
             transectsOnly = data.loc[data["isTransect"] == True]
-            plt.figure()
-            plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
-            a = plt.scatter(
-                transectsOnly["xFRF"],
-                transectsOnly["yFRF"],
-                c=transectsOnly["profileNumber"].to_list(),
-                cmap="hsv",
-                s=1,
-            )
+            if current_progress == True:
+                plt.figure()
+                plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
+                a = plt.scatter(
+                    transectsOnly["xFRF"],
+                    transectsOnly["yFRF"],
+                    c=transectsOnly["profileNumber"].to_list(),
+                    cmap="hsv",
+                    s=1,
+                )
+                cbar = plt.colorbar(a)
             if pointsValid:
                 plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker="x")
-            cbar = plt.colorbar(a)
+
             plt.xlabel("FRF Coordinate System X (m)")
             plt.ylabel("FRF Coordinate System Y (m)")
             cbar.set_label("Transect Number")
@@ -1286,7 +1321,7 @@ def transectSelection(data, **kwargs):
         plt.xlabel("xFRF (m)")
         plt.ylabel("yFRF (m)")
         cbar.set_label("Transect Number")
-        plt.title(f"Crawler Survey {DT.datetime.utcfromtimestamp(data['date'][0])}")
+        plt.title(f" Survey {DT.datetime.utcfromtimestamp(data['date'][0])}")
         plt.savefig(
             os.path.join(
                 outputDir,
@@ -1322,8 +1357,7 @@ def transectSelection(data, **kwargs):
 
     return data
 
-
-def plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave):
+def plot_planview_FRF_with_profile(ofname, coords, instant_depths, smoothed_depths, processed_depths):
 
         minloc = 800
         maxloc = 1000
@@ -1333,18 +1367,14 @@ def plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_de
         plt.figure(figsize=(12, 8))
         plt.subplot(211)
         plt.title('plan view of survey')
-        plt.scatter(coords['xFRF'], coords['yFRF'], c=elevation_out[idxDataToSave], vmax=-1)
+        plt.scatter(coords['xFRF'], coords['yFRF'], c=processed_depths, vmax=-1)
         cbar = plt.colorbar()
         cbar.set_label('depth')
         plt.subplot(212)
         plt.title(f"profile at line y={np.median(coords['yFRF'][logic]).astype(int)}")
-        plt.plot(coords['xFRF'][logic],
-                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_instant_depth_out[idxDataToSave][logic], '.',
-                 label='instant depths')
-        plt.plot(coords['xFRF'][logic],
-                 gnss_out[idxDataToSave][logic] - antenna_offset - sonar_smooth_depth_out[idxDataToSave][logic], '.',
-                 label='smooth Depth')
-        plt.plot(coords['xFRF'][logic], elevation_out[idxDataToSave][logic], '.', label='chosen depths')
+        plt.plot(coords['xFRF'][logic], instant_depths[logic], '.', label='instant depths')
+        plt.plot(coords['xFRF'][logic], smoothed_depths[logic], '.', label='smooth Depth')
+        plt.plot(coords['xFRF'][logic], processed_depths[logic], '.', label='chosen depths')
         plt.legend()
         plt.xlabel('xFRF')
         plt.ylabel('elevation NAVD88[m]')
@@ -1374,8 +1404,8 @@ def plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out,
         plt.savefig(ofname)
         plt.close()
 
-def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime,
-                               sonarData, sonarIndicies, sonar_range):
+def plot_qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i, phaseLaginTime,
+                                    sonarData, sonarIndicies, sonar_range):
     # TODO pull this figure out to a function
     plt.figure(figsize=(16, 8))
     ax1 = plt.subplot(311)
@@ -1399,10 +1429,8 @@ def qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, 
     plt.show()
     plt.savefig(ofname)
 
-def is_local_to_FRF(coords):
-    return ((coords['yFRF'] < 2000) & (coords['yFRF'] > -20000) & (coords['xFRF'] > 0)).all()
 
-def qaqc_time_offset_determination(ofname, pc_time_off):
+def plot_qaqc_time_offset_determination(ofname, pc_time_off):
     # Compare GPS data to make sure timing is ok
     plt.figure()
     plt.suptitle('time offset between pc time and GPS time')
@@ -1418,7 +1446,7 @@ def qaqc_time_offset_determination(ofname, pc_time_off):
     print(f'the PC time (sonar time stamp) is {np.median(pc_time_off):.2f} seconds behind the GNSS timestamp')
     plt.close()
 
-def sonar_pick_cross_correlation_time(ofname, sonar_range):
+def plot_sonar_pick_cross_correlation_time(ofname, sonar_range):
     plt.figure(figsize=(10, 4))
     plt.subplot(211)
     plt.title('all data: select start/end point for measured depths to do time-syncing over ')
@@ -1435,7 +1463,7 @@ def sonar_pick_cross_correlation_time(ofname, sonar_range):
     plt.savefig(ofname)
     return sonarIndicies
 
-def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk):
+def plot_qaqc_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk):
 
 
     # 6.6 Now lets take a look at all of our data from the different sources
@@ -1455,7 +1483,7 @@ def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T
     plt.savefig(ofname)
     plt.close()
 
-def qaqc_sonar_profiles(ofname, sonarData):
+def plot_qaqc_sonar_profiles(ofname, sonarData):
     # unpack dictionary
     sonar_epoch_time = sonarData['time']
     sonar_time = [DT.datetime.fromtimestamp(i, tz=None) for i in sonar_epoch_time]
