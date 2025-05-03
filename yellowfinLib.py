@@ -1134,7 +1134,7 @@ def transect_selection_tool(data, **kwargs):
                 dispData["UNIX_timestamp"], dispData["yFRF"], c=dispData["yFRF"], cmap="hsv", s=1
             )
             ax2.text(dispData['UNIX_timestamp'].mean(), dispData["yFRF"].mean(), "don't use this plot",
-                     ha='center', va='center', fontsize=15)
+                     ha='center', va='center', fontsize=20)
             # ax2.plot(np.linspace(dispData['UNIX_timestamp'].min(), dispData['UNIX_timestamp'].max()),
             #          np.linspace(0, 1500), 'r-', lw=10)
             # ax2.plot(np.linspace(dispData['UNIX_timestamp'].min(), dispData['UNIX_timestamp'].max()),

@@ -286,7 +286,7 @@ def main(datadir, geoid, makePos=True, verbose=2, rtklib_executable_path = 'ref/
     if time_sync_method != 'native':
         pc_time_off = payload_gps_data['pc_time_gga'] + ET2UTC - payload_gps_data['gps_time']
         ofname = os.path.join(plotDir, 'clock_offset.png')
-        yellowfinLib.qaqc_time_offset_determination(ofname, pc_time_off)
+        yellowfinLib.plot_qaqc_time_offset_determination(ofname, pc_time_off)
     else:
         pc_time_off = np.array(0) # GNSS time is native time
     # 6.4 Use the cerulean instantaneous bed detection since not sure about delay with smoothed
@@ -313,17 +313,17 @@ def main(datadir, geoid, makePos=True, verbose=2, rtklib_executable_path = 'ref/
 
     # 6.5 now plot sonar with time
     ofname = os.path.join(plotDir, 'SonarBackScatter.png')
-    yellowfinLib.qaqc_sonar_profiles(ofname, sonarData)
+    yellowfinLib.plot_qaqc_sonar_profiles(ofname, sonarData)
 
     ofname = os.path.join(plotDir, 'AllData.png')
-    yellowfinLib.qaqc_plot_all_data_in_time(ofname, sonarData, sonar_bottom_algorithm_m, payload_gps_data, T_ppk)
+    yellowfinLib.plot_qaqc_all_data_in_time(ofname, sonarData, sonar_bottom_algorithm_m, payload_gps_data, T_ppk)
 
     if time_sync_method == 'native':
         sonar_time_out = sonarData['time']
     else:
         # 6.7 # plot sonar, select indices of interest, and then second subplot is time of interest
         ofname = os.path.join(plotDir, 'subsetForCrossCorrelation.png')
-        sonarIndicies = yellowfinLib.sonar_pick_cross_correlation_time(ofname, sonar_bottom_algorithm_m)
+        sonarIndicies = yellowfinLib.plot_sonar_pick_cross_correlation_time(ofname, sonar_bottom_algorithm_m)
         # now identify corresponding times from ppk GPS to those times of sonar that we're interested in
         indsPPK = np.where((T_ppk['epochTime'] >= sonarData['time'][sonarIndicies[0]]) & (
                 T_ppk['epochTime'] <= sonarData['time'][sonarIndicies[-1]]))[0]
@@ -347,8 +347,8 @@ def main(datadir, geoid, makePos=True, verbose=2, rtklib_executable_path = 'ref/
                                                                               sampleFreq=np.median(np.diff(commonTime)))
 
         ofname = os.path.join(plotDir, 'subsetAfterCrossCorrelation.png')
-        yellowfinLib.qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i,
-                                                phaseLaginTime, sonarData, sonarIndicies, sonar_bottom_algorithm_m)
+        yellowfinLib.plot_qaqc_post_sonar_time_shift(ofname, T_ppk, indsPPK, commonTime, ppkHeight_i, sonar_range_i,
+                                                     phaseLaginTime, sonarData, sonarIndicies, sonar_bottom_algorithm_m)
 
         print(f"sonar data adjusted by {phaseLaginTime:.3f} seconds")
 
@@ -394,7 +394,7 @@ def main(datadir, geoid, makePos=True, verbose=2, rtklib_executable_path = 'ref/
         if ppklogic.min() <= 0.101:  # .101 handles numerics
             idxTimeMatchGNSS = np.argmin(ppklogic)
 
-        # if we have both sonar and GNSS for this time step, then we log the data
+        # if we have both sonar and GNSS for this time step, then we log the data as matched
         if idxTimeMatchGNSS is not None and idxTimeMatchSonar is not None:  # we have matching data
             # if it passes quality thresholds
             if T_ppk['Q'][idxTimeMatchGNSS] <= ppk_quality_threshold and qualityLogic[idxTimeMatchSonar]:
@@ -449,11 +449,17 @@ def main(datadir, geoid, makePos=True, verbose=2, rtklib_executable_path = 'ref/
     if not is_local_FRF:
         logging.info("identified data as NOT Local to the FRF")
     else: # start argus download as soon as we know its FRF data
-        # argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
-        #                                                   DT.timedelta(hours=14),
-        #                                                   ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),
-        #                                                   imageType='timex')
-        1
+        glob_argus_result = glob.glob(os.path.join(plotDir, "*rgus*.tif"))
+        if len(glob_argus_result) == 1:
+            argusGeotiff = glob_argus_result[0]
+        else:
+            argusGeotiff = None
+            # below was throwing errors
+            # argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
+            #                                                   DT.timedelta(hours=14),
+            #                                                   ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),
+            #                                                   imageType='timex')
+
     ofname = os.path.join(plotDir, 'FinalDataProduct.png')
     yellowfinLib.plot_planview_lonlat(ofname=ofname, T_ppk=T_ppk, bad_lon_out=bad_lon_out, bad_lat_out=bad_lat_out,
                                       elevation_out=elevation_out, lat_out=lat_out, lon_out=lon_out,
@@ -461,31 +467,40 @@ def main(datadir, geoid, makePos=True, verbose=2, rtklib_executable_path = 'ref/
 
 
     # now make a data packet to save
-    data = {'time': time_out[idxDataToSave], 'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
+    data_product = {'time': time_out[idxDataToSave], 'date': DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
             'Latitude': lat_out[idxDataToSave], 'Longitude': lon_out[idxDataToSave],
             'Northing': coords['StateplaneN'], 'Easting': coords['StateplaneE'],  'Elevation': elevation_out[idxDataToSave],
             'Ellipsoid': np.ones_like(elevation_out[idxDataToSave]) * -999}
-    if is_local_FRF is True:
-        data['xFRF'] = coords['xFRF']
-        data['yFRF'] = coords['yFRF']
-        data['Profile_number'] = np.ones_like(elevation_out[idxDataToSave]) * -999,
-        data['Survey_number'] =  np.ones_like(elevation_out[idxDataToSave]) * -999
-        yellowfinLib.plotPlanViewOnArgus(data, argusGeotiff, ofName=os.path.join(plotDir, 'yellowfinDepthsOnArgus.png'))
+
+    if is_local_FRF == True:
+        data_product['xFRF'] = coords['xFRF']
+        data_product['yFRF'] = coords['yFRF']
+        data_product['Profile_number'] = np.ones_like(elevation_out[idxDataToSave]) * -999
+        data_product['Survey_number'] =  np.ones_like(elevation_out[idxDataToSave]) * -999
+        yellowfinLib.plot_plan_view_on_argus(data_product, argusGeotiff,
+                                             ofName=os.path.join(plotDir, 'yellowfinDepthsOnArgus.png'))
 
         ofname = os.path.join(plotDir, 'singleProfile.png')
-        yellowfinLib.plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave)
+        yellowfinLib.plot_planview_FRF_with_profile(ofname, coords,
+                                                    instant_depths = gnss_out[idxDataToSave] - antenna_offset - sonar_instant_depth_out[idxDataToSave],
+                                                    smoothed_depths = gnss_out[idxDataToSave] - antenna_offset - sonar_smooth_depth_out[idxDataToSave],
+                                                    processed_depths=elevation_out[idxDataToSave])
 
-        data['UNIX_timestamp'] = data['time']
-        data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir) # bombs out on non-frf data
-        data['Profile_number'] = data.pop('profileNumber')
-        data['Profile_number'].iloc[np.argwhere(data['Profile_number'].isnull()).squeeze()] = -999
+        data_product['UNIX_timestamp'] = data_product['time']
 
+        save = data_product.pop('date')
+        data_product = yellowfinLib.transect_selection_tooldapd.DataFrame.from_dict(data_product), outputDir=plotDir)
+        data_product['Profile_number'] = data_product.pop('profileNumber')
+        data_product['Profile_number'].iloc[np.argwhere(data_product['Profile_number'].isnull()).squeeze()] = -999
+        data_product['date'] = date_save
     ## now make netCDF files
         ofname = os.path.join(datadir, f'FRF_geomorphology_elevationTransects_survey_{timeString}.nc')
     else:
+        # below bombs out on non-FRF data
+        # data = yellowfinLib.transect_selection_tool(pd.DataFrame.from_dict(data), outputDir=plotDir)
         ofname = os.path.join(datadir, f'{1}_geomorphology_elevationTransects_survey_{timeString}.nc')
     py2netCDF.makenc_generic(ofname, globalYaml='yamlFile/transect_global.yml',
-                             varYaml='yamlFile/transect_variables.yml', data=data)
+                             varYaml='yamlFile/transect_variables.yml', data=data_product)
 
     outputfile = os.path.join(datadir, f'{timeString}_totalCombinedRawData.h5')
     with h5py.File(outputfile, 'w') as hf:
@@ -506,7 +521,7 @@ def main(datadir, geoid, makePos=True, verbose=2, rtklib_executable_path = 'ref/
         if is_local_FRF is True:
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
-            hf.create_dataset('Profile_number', data=data['Profile_number'])
+            hf.create_dataset('Profile_number', data=data_product['Profile_number'])
 
 
     # Make mission summary YAML based on user prompted inputs, write to datadir
