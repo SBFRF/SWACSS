@@ -480,6 +480,38 @@ def loadSonar_s500_binary(dataPath, h5_ofname=None, verbose=False):
             hf.create_dataset("decimation", data=decimation)
             hf.create_dataset("range_m", data=rangev / 1000)
 
+def save_h5_to_dictionary(data_dict, h5_file_path):
+    """
+    Save a dictionary to an HDF5 file.
+
+    Args:
+        data_dict (dict): The dictionary to save.
+        h5_file_path (str): Path where the HDF5 file will be saved.
+    """
+
+    def recursive_save(group, data):
+        """
+        Recursively save dictionary entries to HDF5 groups and datasets.
+
+        Args:
+            group (h5py.Group): The group where data will be stored.
+            data (dict or ndarray): Data to store (can be a nested dictionary or dataset).
+        """
+        if isinstance(data, dict):
+            # If the data is a dictionary, create subgroups and save recursively
+            for key, value in data.items():
+                # Create subgroup for the key
+                subgroup = group.create_group(key)
+                # Recursively save its contents
+                recursive_save(subgroup, value)
+        else:
+            # If the data is not a dictionary, save it as a dataset
+            group.create_dataset('data', data=data)
+
+    with h5py.File(h5_file_path, 'w') as f:
+        # Start saving from the root group
+        recursive_save(f, data_dict)
+
 
 def load_h5_to_dictionary(fname):
     """Loads already created H5 file from the sonar data."""

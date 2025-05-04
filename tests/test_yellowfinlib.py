@@ -7,6 +7,12 @@ import datetime as DT
 import numpy as np
 
 
+def test_is_high_low_dual_freq():
+    fpath = "tests/files/sonar_file_no_low.h5"
+    assert yfl.is_high_low_dual_freq(fpath) == 'low'
+    assert yfl.is_high_low_dual_freq('file_does_exist.h5') == 'high'
+
+
 def test_mLabDatetime_to_epoch():
     dt = DT.datetime(1992, 12, 12, 12, 0, 0, tzinfo=DT.timezone.utc)
     python_expected = 724161600
