@@ -20,6 +20,9 @@ from matplotlib import pyplot as plt
 from rasterio import plot as rplt
 from testbedutils import geoprocess
 from scipy import signal
+import numpy as np
+from scipy.signal import correlate
+from scipy import signal
 
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
@@ -566,7 +569,7 @@ def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_p
 
 def mLabDatetime_to_epoch(dt):
     """Convert matlab datetime to unix Epoch time"""
-    epoch = DT.datetime(1970, 1, 1)
+    epoch = DT.datetime(1970, 1, 1, tzinfo=DT.timezone.utc)
     delta = dt - epoch
     return delta.total_seconds()
 
@@ -762,8 +765,7 @@ def findTimeShiftCrossCorr(signal1, signal2, sampleFreq=1):
     :param sampleFreq: sampling frequency, in HZ
     :return: phase lag in samples, phase lag in time
     """
-    import numpy as np
-    from scipy.signal import correlate
+
 
     assert len(signal1) == len(signal2), "signals need to be the same lenth"
     # load your time series data into two separate arrays, let's call them signal1 and signal2.
@@ -803,8 +805,6 @@ def loadLLHfiles(flderlistLLH):
 
 
 def butter_lowpass_filter(data, cutoff, fs, order):
-    from scipy import signal
-
     b, a = signal.butter(order, cutoff / fs / 2, "low", analog=False)
     output = signal.filtfilt(b, a, data)
 
