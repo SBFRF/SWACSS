@@ -1,15 +1,10 @@
 import os
-import sys
 import matplotlib
-
 matplotlib.use("TkAgg")
 from scipy import interpolate, signal
 import py2netCDF
 import yellowfinLib
 import datetime as DT
-from matplotlib import pyplot as plt
-
-# plt.use('TkAgg')
 import numpy as np
 import h5py
 import pandas as pd
@@ -20,7 +15,7 @@ from testbedutils import geoprocess
 import argparse, logging, yaml
 from mission_yaml_files import make_summary_yaml, make_failure_yaml
 
-__version__ = 0.3
+__version__ = 0.5
 
 
 def deconflict_args(args, yaml_config):
@@ -227,21 +222,21 @@ def main(
             yellowfinLib.loadSonar_s500_binary(fpathSonar, h5_ofname=saveFnameSonar, verbose=verbose)
         else:
             logging.info(f"Skipping {saveFnameSonar}")
-    elif sonar_model in ["d032", "ect-d032"] and not os.path.isfile(saveFnameSonar):
+    elif sonar_model in ["d032", "ect-d032"]:
+        high_low = yellowfinLib.is_high_low_dual_freq(saveFnameSonar)
+        timeString = timeString + "_low_"
         of_plot = os.path.join(plotDir, f"{timeString}_raw_sonar-ect-d032.png")
+        saveFnameSonar = os.path.join(datadir, f"{timeString}_sonarRaw.h5")  # saves sonar file here
         yellowfinLib.loadSonar_ectd032_ascii(
             fpathSonar,
             h5_ofname=saveFnameSonar,
             verbose=verbose,
             of_plot=of_plot,
-            high_low="high",
+            high_low=high_low,
         )
-        # yellowfinLib.loadSonar_ectd032_ascii(fpathSonar, h5_ofname=saveFnameSonar, verbose=verbose, of_plot=of_plot,
-        #                                      high_low='low')
 
     elif not os.path.isfile(saveFnameSonar):
         raise NotImplementedError("sonar option not implemented")
-    # other wise it kicked out becuase sonar file existed
 
     # then load NMEA files
     if not os.path.isfile(save_fname_gnss) and time_sync_method != "native":
@@ -316,7 +311,7 @@ def main(
                 if "raw" in fname and ".zip" not in fname
             ]
 
-        logging.warning("load PPK pos files ---- THESE ARE WGS84!!!!!!!!!!!!!!")
+        logging.warning("load PPK pos files ---- THESE ARE WGS84 (EPSG:4326) !!!!!!!!!!!!!!")
         try:
             T_ppk = yellowfinLib.load_ppk_fils_list(flist_ppk=flist_pos)
             T_ppk.to_hdf(path_or_buf=saveFnamePPK, key="ppk")  # now save the h5 intermediate file
@@ -369,7 +364,7 @@ def main(
         ofname = os.path.join(plotDir, "clock_offset.png")
         yellowfinLib.plot_qaqc_time_offset_determination(ofname, pc_time_off)
     else:
-        pc_time_off = np.array(0)  # GNSS time is native time
+        pc_time_off = np.array(0)  # in this case GNSS time is native time
     # 6.4 Use the cerulean instantaneous bed detection since not sure about delay with smoothed
     # adjust time of the sonar time stamp with timezone shift (ET -> UTC) and the timeshift between the computer and GPS
     sonarData["time"] = sonarData["time"] + ET2UTC - np.median(pc_time_off)  # convert to UTC
@@ -391,17 +386,17 @@ def main(
     #     sonar_range =
 
     # 6.5 now plot sonar with time
-    ofname = os.path.join(plotDir, "SonarBackScatter.png")
+    ofname = os.path.join(plotDir, f"{timeString}_SonarBackScatter.png")
     yellowfinLib.plot_qaqc_sonar_profiles(ofname, sonarData)
 
-    ofname = os.path.join(plotDir, "AllData.png")
+    ofname = os.path.join(plotDir, f"{timeString}_AllData.png")
     yellowfinLib.plot_qaqc_all_data_in_time(ofname, sonarData, sonar_bottom_algorithm_m, payload_gps_data, T_ppk)
 
     if time_sync_method == "native":
         sonar_time_out = sonarData["time"]
     else:
         # 6.7 # plot sonar, select indices of interest, and then second subplot is time of interest
-        ofname = os.path.join(plotDir, "subsetForCrossCorrelation.png")
+        ofname = os.path.join(plotDir, f"{timeString}_subsetForCrossCorrelation.png")
         sonarIndicies = yellowfinLib.plot_sonar_pick_cross_correlation_time(ofname, sonar_bottom_algorithm_m)
         # now identify corresponding times from ppk GPS to those times of sonar that we're interested in
         indsPPK = np.where(
@@ -432,7 +427,7 @@ def main(
             sampleFreq=np.median(np.diff(commonTime)),
         )
 
-        ofname = os.path.join(plotDir, "subsetAfterCrossCorrelation.png")
+        ofname = os.path.join(plotDir, f"{timeString}_subsetAfterCrossCorrelation.png")
         yellowfinLib.plot_qaqc_post_sonar_time_shift(
             ofname,
             T_ppk,
@@ -566,7 +561,6 @@ def main(
                     )
                     sonar_out[tidx] = sonarData["this_ping_depth_m"][idxTimeMatchSonar]
                 elif time_sync_method == "native":
-                    logging.warning("only saving depths of one frequency!!!!!")
                     elevation_out[tidx] = (
                         T_ppk["GNSS_elevation_NAVD88"][idxTimeMatchGNSS]
                         - antenna_offset
@@ -603,7 +597,7 @@ def main(
             #                                                   ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),
             #                                                   imageType='timex')
 
-    ofname = os.path.join(plotDir, "FinalDataProduct.png")
+    ofname = os.path.join(plotDir, f"{timeString}_FinalDataProduct.png")
     yellowfinLib.plot_planview_lonlat(
         ofname=ofname,
         T_ppk=T_ppk,
@@ -620,7 +614,7 @@ def main(
     # now make a data packet to save
     data_product = {
         "time": time_out[idxDataToSave],
-        "date": np.ones_like(time_out[idxDataToSave]) * DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
+        "date": np.ones_like(time_out[idxDataToSave]) * DT.datetime.strptime(timeString[:8], "%Y%m%d").timestamp(),
         "Latitude": lat_out[idxDataToSave],
         "Longitude": lon_out[idxDataToSave],
         "Northing": coords["StateplaneN"],
@@ -637,10 +631,10 @@ def main(
         yellowfinLib.plot_plan_view_on_argus(
             data_product,
             argusGeotiff,
-            ofName=os.path.join(plotDir, "yellowfinDepthsOnArgus.png"),
+            ofName=os.path.join(plotDir, f"{timeString}_yellowfinDepthsOnArgus.png"),
         )
 
-        ofname = os.path.join(plotDir, "singleProfile.png")
+        ofname = os.path.join(plotDir, f"{timeString}_singleProfile.png")
         yellowfinLib.plot_planview_FRF_with_profile(
             ofname,
             coords,
@@ -663,7 +657,7 @@ def main(
     else:
         # below bombs out on non-FRF data
         # data = yellowfinLib.transect_selection_tool(pd.DataFrame.from_dict(data), outputDir=plotDir)
-        ofname = os.path.join(datadir, f"{1}_geomorphology_elevationTransects_survey_{timeString}.nc")
+        ofname = os.path.join(datadir, f"{'output_data'}_geomorphology_elevationTransects_survey_{timeString}.nc")
     py2netCDF.makenc_generic(
         ofname,
         globalYaml="yamlFile/transect_global.yml",

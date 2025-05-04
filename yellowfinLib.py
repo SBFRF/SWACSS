@@ -808,7 +808,7 @@ def butter_lowpass_filter(data, cutoff, fs, order):
     b, a = signal.butter(order, cutoff / fs / 2, "low", analog=False)
     output = signal.filtfilt(b, a, data)
 
-    # ormal_cutoff = cutoff / nyq
+    # normal_cutoff = cutoff / nyq
     # Get the filter coefficients
     # b, a = butter(order, normal_cutoff, btype='low', analog=False)
     # y = filtfilt(b, a, data)
@@ -944,6 +944,19 @@ def load_ppk_fils_list(flist_ppk):
     T_ppk["epochTime"] = T_ppk["datetime"].apply(lambda x: x.timestamp())
     return T_ppk
 
+def is_high_low_dual_freq(fpath_sonar):
+    try:
+        sonar_data = load_h5_to_dictionary(fpath_sonar)
+        data_keys = sonar_data.keys()
+        assert 'profile_data' in data_keys
+        assert 'smooth_depth_m' in data_keys
+        high_low = 'low'
+    except FileNotFoundError:
+        high_low = "high"
+    except AssertionError:
+        raise RuntimeError("Talk to developer if you see this error")
+
+    return high_low
 
 def unpackYellowfinCombinedRaw(fname):
     data = {}
