@@ -766,7 +766,6 @@ def findTimeShiftCrossCorr(signal1, signal2, sampleFreq=1):
     :return: phase lag in samples, phase lag in time
     """
 
-
     assert len(signal1) == len(signal2), "signals need to be the same lenth"
     # load your time series data into two separate arrays, let's call them signal1 and signal2.
     # compute the cross-correlation between the two signals using the correlate function:
@@ -944,19 +943,21 @@ def load_ppk_fils_list(flist_ppk):
     T_ppk["epochTime"] = T_ppk["datetime"].apply(lambda x: x.timestamp())
     return T_ppk
 
+
 def is_high_low_dual_freq(fpath_sonar):
     try:
         sonar_data = load_h5_to_dictionary(fpath_sonar)
         data_keys = sonar_data.keys()
-        assert 'profile_data' in data_keys
-        assert 'smooth_depth_m' in data_keys
-        high_low = 'low'
+        assert "profile_data" in data_keys
+        assert "smooth_depth_m" in data_keys
+        high_low = "low"
     except FileNotFoundError:
         high_low = "high"
     except AssertionError:
         raise RuntimeError("Talk to developer if you see this error")
 
     return high_low
+
 
 def unpackYellowfinCombinedRaw(fname):
     data = {}
