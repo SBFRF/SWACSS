@@ -1135,15 +1135,7 @@ def transect_selection_tool(data, **kwargs):
             )
             ax2.text(dispData['UNIX_timestamp'].mean(), dispData["yFRF"].mean(), "don't use this plot",
                      ha='center', va='center', fontsize=20)
-            # ax2.plot(np.linspace(dispData['UNIX_timestamp'].min(), dispData['UNIX_timestamp'].max()),
-            #          np.linspace(0, 1500), 'r-', lw=10)
-            # ax2.plot(np.linspace(dispData['UNIX_timestamp'].min(), dispData['UNIX_timestamp'].max()),
-            #          np.linspace(1500, 0), 'r-', lw=10)
-
-            # ax2.plot([dispData['UNIX_timestamp'].min(), dispData['yFRF'].max()],
-            #          [dispData['UNIX_timestamp'].max(), dispData['yFRF'].min()], 'r-')
             ax2.set(xlabel="UNIX Timestamp (seconds)", ylabel="yFRF (m)")
-            # ax2.set_xlim([dispData['UNIX_timestamp'].min(), dispData['yFRF'].min()])
             plt.tight_layout()
             selected_points = plt.ginput(-1, 0)
             print(f"Selected Points: {selected_points}")
@@ -1235,16 +1227,20 @@ def transect_selection_tool(data, **kwargs):
                     # update primary dataframe
                     # search once to find first timestamp, iterate afterwards
                     startTime = currTransect["UNIX_timestamp"].iloc[0]
-                    endTime = currTransect["UNIX_timestamp"].iloc[currTransect.shape[0] - 1]
-                    firstI = 0
-                    for y in range(data.shape[0]):
-                        if data["UNIX_timestamp"].iloc[y] == startTime:
-                            firstI = y
-                            break
-
-                    for x in range(currTransect.shape[0]):
-                        data.loc[x + firstI, "profileNumber"] = transectID
-                        data.loc[x + firstI, "isTransect"] = True
+                    # endTime = currTransect["UNIX_timestamp"].iloc[currTransect.shape[0] - 1]
+                    # firstI = 0
+                    firstI = np.argmin(np.abs(data["UNIX_timestamp"] - startTime))
+                    # now assign transect ID & isTransect variables
+                    data.loc[firstI:firstI + len(currTransect), "profileNumber"] = transectID
+                    data.loc[firstI:firstI + len(currTransect), "isTransect"] = True
+                    # # for y in range(data.shape[0]):
+                    # #     if data["UNIX_timestamp"].iloc[y] == startTime:
+                    # #         firstI = y
+                    # #         break
+                    #
+                    # for x in range(currTransect.shape[0]):
+                    #     data.loc[x + firstI, "profileNumber"] = transectID
+                    #     data.loc[x + firstI, "isTransect"] = True
                 else:
                     # ignore selected points if from different plots
                     logging.warning("Selected points from different plots. Discarding selected points.")
@@ -1255,9 +1251,9 @@ def transect_selection_tool(data, **kwargs):
                 pointsValid = False
 
             # display selected transects overlayed over all points, colored by profile number
-            logging.info("Displaying current progress. Close the window to continue.")
-            transectsOnly = data.loc[data["isTransect"] == True]
             if current_progress == True:
+                logging.info("Displaying current progress. Close the window to continue.")
+                transectsOnly = data.loc[data["isTransect"] == True]
                 plt.figure()
                 plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
                 a = plt.scatter(
@@ -1268,14 +1264,15 @@ def transect_selection_tool(data, **kwargs):
                     s=1,
                 )
                 cbar = plt.colorbar(a)
-            if pointsValid:
-                plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker="x")
+                if pointsValid:
+                    a = plt.scatter(currTransect["xFRF"], currTransect["yFRF"], c="pink", marker="x")
 
-            plt.xlabel("FRF Coordinate System X (m)")
-            plt.ylabel("FRF Coordinate System Y (m)")
-            cbar.set_label("Transect Number")
-            plt.title("Current Progress")
-            plt.show()
+                plt.xlabel("FRF Coordinate System X (m)")
+                plt.ylabel("FRF Coordinate System Y (m)")
+                cbar = plt.colorbar(a)
+                cbar.set_label("Transect Number")
+                plt.title("Current Progress")
+                plt.show()
             transectIdentify = input(
                 "Do you want to select another transect? yes-y, No-N, undo-u :"
             )
@@ -1304,7 +1301,7 @@ def transect_selection_tool(data, **kwargs):
             transectIdentify = input("Do you want to select another transect? (Y/N):")
         else:
             raise NotImplementedError("required inputs are (y)es/(n)o/(u)ndo")
-    # prompts for saving charts, excel and pickle
+    # prompts for saving plots pickle
 
     if plotting is True:
         transectsOnly = data.loc[data["isTransect"] == True]
@@ -1330,7 +1327,6 @@ def transect_selection_tool(data, **kwargs):
         )
         plt.close()
 
-        print("Close the window to continue.")
         plt.figure(figsize=(8, 16))
         plt.scatter(data["xFRF"], data["yFRF"], c="black", s=1)
         plt.scatter(
