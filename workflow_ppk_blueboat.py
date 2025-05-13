@@ -1,11 +1,14 @@
 import os
+import sys
 import matplotlib
+from scipy import interpolate, signal
+
+import py2netCDF
 
 matplotlib.use("TkAgg")
-from scipy import interpolate, signal
-import py2netCDF
 import yellowfinLib
 import datetime as DT
+from matplotlib import pyplot as plt
 import numpy as np
 import h5py
 import pandas as pd
@@ -14,30 +17,8 @@ import zipfile
 import tqdm
 from testbedutils import geoprocess
 import argparse, logging, yaml
-from mission_yaml_files import make_summary_yaml, make_failure_yaml
 
-__version__ = 0.5
-
-
-def deconflict_args(args, yaml_config):
-    """
-    Update a dict with values from a Namespace if they differ.
-
-    Parameters:
-        args (argparse.Namespace): source of truth for values.
-        yaml_config (dict):        dict to update.
-
-    Returns:
-        dict: the updated mapping (in-place).
-    """
-    for key, ns_value in vars(args).items():
-        # print(key, ns_value)
-        # only overwrite when there's a difference (or missing key)
-        if yaml_config.get(key) != ns_value and yaml_config.get(key) != None:
-            print(f"updated {key} from {yaml_config[key]} to {ns_value}")
-            yaml_config[key] = ns_value
-
-    return yaml_config
+__version__ = 0.2
 
 
 def parse_args(__version__):
@@ -108,6 +89,18 @@ def parse_args(__version__):
         help="this is a quality threshold 1: Fixed, 2: Float, 4:DGPS, 5: single -- see appendix B for "
         "more details: https://rtkexplorer.com/pdfs/manual_demo5.pdf  ",
     )
+    parser.add_argument(
+        "--instant_sonar_confidence",
+        type=int,
+        default=99,
+        help="This is a filter threshold for instantaneous confidence for each sonar ping",
+    )
+    parser.add_argument(
+        "--smoothed_sonar_confidence",
+        type=int,
+        default=60,
+        help="This is a filter threshold for smoothed confidence from the sonar",
+    )
 
     return parser.parse_args()
 
@@ -156,27 +149,36 @@ def main(
     geoid,
     makePos=True,
     verbose=2,
+    sonar_method="default",
     rtklib_executable_path="ref/rnx2rtkp",
+    ppk_quality_threshold=1,
     instant_sonar_confidence=99,
     smoothed_sonar_confidence=60,
-    yaml_config=None,
 ):
-    """This function is the main function for processing ppk GNSS and sonar data for MURG."""
-    acceptable_time_sync = ["default", "instant", "smooth", "native"]
+
     verbosity_conversion(verbose)
-    # unpack yaml configuration
-    antenna_offset = yaml_config.get(
-        "gnss_antenna_offset_m", 0.25
-    )  # meters between the antenna phase center and sounder head - default for yellowfin
-    time_sync_method = yaml_config["processing"].get("time_sync_method", "default").lower()
-    sonar_model = yaml_config["sonar"].get("sonar_model", False).lower()
-    ppk_quality_threshold = yaml_config["processing"].get("ppk_quality_threshold", 1)
+    antenna_offset = 0.25  # meters between the antenna phase center and sounder head - default for yellowfin
 
     #  date that Pi computer was changed to UTC time (will adjust timezone manually before this date)
     yellowfin_clock_reset_date = DT.datetime(2023, 7, 10)  # do not adjust this date!
+    if sonar_method == "default":
+        bathy_report = "smoothed"
+        time_sync = "instant"
+        sonar_confidence = smoothed_sonar_confidence
+    elif sonar_method == "instant":
+        sonar_confidence = instant_sonar_confidence
+        bathy_report = sonar_method
+        time_sync = sonar_method
+    elif sonar_method == "smoothed":
+        sonar_confidence = smoothed_sonar_confidence
+        bathy_report = sonar_method
+        time_sync = sonar_method
 
+    logging.info(f"procesing prameters:  sonar time sync method {time_sync}")
+    logging.info(f"procesing prameters:  bathy sonar method {bathy_report}")
     logging.info(f"input folder: {datadir}")
     logging.info(f"ppk_quality_threshold: {ppk_quality_threshold}")
+    logging.info(f"sonar_confidence: {sonar_confidence} %")
     ####################################################################################################################
 
     if datadir.endswith("/"):
@@ -185,75 +187,48 @@ def main(
     timeString = os.path.basename(datadir)
     plotDir = os.path.join(datadir, "figures")
     os.makedirs(plotDir, exist_ok=True)  # make folder structure if its not already made
+    argusGeotiff = yellowfinLib.threadGetArgusImagery(
+        DT.datetime.strptime(timeString, "%Y%m%d") + DT.timedelta(hours=14),
+        ofName=os.path.join(plotDir, f"Argus_{timeString}.tif"),
+    )
 
     # sonar data
-    fpathSonar = os.path.join(datadir, sonar_model)  # reads sonar from here
+    fpathSonar = os.path.join(datadir, "s500")  # reads sonar from here
     saveFnameSonar = os.path.join(datadir, f"{timeString}_sonarRaw.h5")  # saves sonar file here
 
     # NMEA data from sonar, this is not Post Processed Kinematic (PPK) data.  It is used for only cursory or
     # introductory look at the data
     fpathGNSS = os.path.join(datadir, "nmeadata")  # load NMEA data from this location
-    save_fname_gnss = os.path.join(datadir, f"{timeString}_gnssRaw.h5")  # save nmea data to this location
+    saveFnameGNSS = os.path.join(datadir, f"{timeString}_gnssRaw.h5")  # save nmea data to this location
 
     # RINEX data
     # look for all subfolders with RINEX in the folder name inside the "datadir" emlid ppk processor
-    fpath_pos_files = os.path.join(datadir, "pos_files")
+    fpathEmlid = os.path.join(datadir, "emlidRaw")
     saveFnamePPK = os.path.join(datadir, f"{timeString}_ppkRaw.h5")
 
     logging.debug(f"saving intermediate files for sonar here: {saveFnameSonar}")
     logging.debug(f"saving intermediate files for sonar here: {saveFnamePPK}")
-    logging.debug(f"saving intermediate files for GNSS here: {save_fname_gnss}")
-    if sonar_model in ["s500"] and not os.path.isfile(saveFnameSonar):
-        if time_sync_method == "default":
-            bathy_report = "smoothed"
-            sonar_confidence = smoothed_sonar_confidence
-        elif time_sync_method == "instant":
-            sonar_confidence = instant_sonar_confidence
-            bathy_report = time_sync_method
-
-        elif time_sync_method == "smoothed":
-            sonar_confidence = smoothed_sonar_confidence
-            bathy_report = time_sync_method
-
-        logging.info(f"procesing prameters:  sonar time sync method {time_sync_method}")
-        logging.info(f"procesing prameters:  bathy sonar method {bathy_report}")
-        logging.info(f"sonar_confidence: {sonar_confidence} %")
-        ## load files
-        if not os.path.isfile(saveFnameSonar):
-            yellowfinLib.loadSonar_s500_binary(fpathSonar, h5_ofname=saveFnameSonar, verbose=verbose)
-        else:
-            logging.info(f"Skipping {saveFnameSonar}")
-    elif sonar_model in ["d032", "ect-d032"]:
-        high_low = yellowfinLib.is_high_low_dual_freq(saveFnameSonar)
-        timeString = timeString + "_low_"
-        of_plot = os.path.join(plotDir, f"{timeString}_raw_sonar-ect-d032.png")
-        saveFnameSonar = os.path.join(datadir, f"{timeString}_sonarRaw.h5")  # saves sonar file here
-        yellowfinLib.loadSonar_ectd032_ascii(
-            fpathSonar,
-            h5_ofname=saveFnameSonar,
-            verbose=verbose,
-            of_plot=of_plot,
-            high_low=high_low,
-        )
-
-    elif not os.path.isfile(saveFnameSonar):
-        raise NotImplementedError("sonar option not implemented")
-
+    logging.debug(f"saving intermediate files for GNSS here: {saveFnameGNSS}")
+    ## load files
+    if not os.path.isfile(saveFnameSonar):
+        yellowfinLib.loadSonar_s500_binary(fpathSonar, outfname=saveFnameSonar, verbose=verbose)
+    else:
+        logging.info(f"Skipping {saveFnameSonar}")
     # then load NMEA files
-    if not os.path.isfile(save_fname_gnss) and time_sync_method != "native":
+    if not os.path.isfile(saveFnameGNSS):  # if we've already processed the GNSS file
         yellowfinLib.load_yellowfin_NMEA_files(
             fpathGNSS,
-            saveFname=save_fname_gnss,
+            saveFname=saveFnameGNSS,
             plotfname=os.path.join(plotDir, "GPSpath_fromNMEAfiles.png"),
             verbose=verbose,
         )
-    else:  # we've already generated this fpathGNSS file
-        logging.info(f"Skipping {save_fname_gnss}")
+    else:
+        logging.info(f"Skipping {saveFnameGNSS}")
 
     if not os.path.isfile(saveFnamePPK):
         if makePos == True:
             # find folders with raw rinex
-            rover_rinex_zip_files = glob.glob(os.path.join(fpath_pos_files, "*RINEX*.zip"))
+            rover_rinex_zip_files = glob.glob(os.path.join(fpathEmlid, "*RINEX*.zip"))
             # identify the nav/obs file
             base_zip_files = glob.glob(os.path.join(datadir, "CORS", "*.zip"))
 
@@ -286,10 +261,7 @@ def main(
                 # identify and process rinex to Pos files
                 flist_rinex = glob.glob(ff[:-4] + "/*")
                 rover_obs_fname = flist_rinex[np.argwhere([i.endswith("O") for i in flist_rinex]).squeeze()]
-                outfname = os.path.join(
-                    os.path.dirname(rover_obs_fname),
-                    os.path.basename(flist_rinex[0])[:-3] + "pos",
-                )
+                outfname = os.path.join(os.path.dirname(rover_obs_fname), os.path.basename(flist_rinex[0])[:-3] + "pos")
                 # use below if the rover nav file is the right call
                 yellowfinLib.makePOSfileFromRINEX(
                     roverObservables=rover_obs_fname,
@@ -302,20 +274,17 @@ def main(
 
         # Now find all the folders that have ppk data in them (*.pos files in folders that have "raw" in them)
         # now identify the folders that have rinex in them
-        flist_pos = sorted(glob.glob(os.path.join(fpath_pos_files, "*.pos")))
-        if len(flist_pos) < 1:
-            raise NotImplementedError("need to put pos files in pos folder")
-            fldrlistPPK = []  # initalize list for appending RINEX folder in
-            [
-                fldrlistPPK.append(os.path.join(fpath_pos_files, fname))
-                for fname in os.listdir(fpath_pos_files)
-                if "raw" in fname and ".zip" not in fname
-            ]
+        fldrlistPPK = []  # initalize list for appending RINEX folder in
+        [
+            fldrlistPPK.append(os.path.join(fpathEmlid, fname))
+            for fname in os.listdir(fpathEmlid)
+            if "raw" in fname and ".zip" not in fname
+        ]
 
-        logging.warning("load PPK pos files ---- THESE ARE WGS84 (EPSG:4326) !!!!!!!!!!!!!!")
+        logging.warning("load PPK pos files ---- THESE ARE WGS84!!!!!!!!!!!!!!")
         try:
-            T_ppk = yellowfinLib.load_ppk_fils_list(flist_ppk=flist_pos)
-            T_ppk.to_hdf(path_or_buf=saveFnamePPK, key="ppk")  # now save the h5 intermediate file
+            T_ppk = yellowfinLib.loadPPKdata(fldrlistPPK)
+            T_ppk.to_hdf(saveFnamePPK, "ppk")  # now save the h5 intermediate file
         except KeyError:
             raise FileExistsError("the pos file hasn't been loaded, manually produce or turn on RTKlib processing")
     else:
@@ -340,16 +309,11 @@ def main(
     else:
         ET2UTC = 0  # time's already in UTC
 
-    ##################################### above is loading/making intermediate files ################################3
     # 6.2: load all files we created in previous steps
     sonarData = yellowfinLib.load_h5_to_dictionary(saveFnameSonar)
+    payloadGpsData = yellowfinLib.load_h5_to_dictionary(saveFnameGNSS)  # this is used for the pc time adjustement
     T_ppk = pd.read_hdf(saveFnamePPK)
-    if time_sync_method != "native":
-        payload_gps_data = yellowfinLib.load_h5_to_dictionary(
-            save_fname_gnss
-        )  # this is used for the pc time adjustement
-    else:
-        payload_gps_data = None
+
     # Adjust GNSS time by the Leap Seconds https://www.cnmoc.usff.navy.mil/Our-Commands/United-States-Naval-Observatory/Precise-Time-Department/Global-Positioning-System/USNO-GPS-Time-Transfer/Leap-Seconds/
     # T_ppk['epochTime'] = T_ppk['epochTime'] - 18  # 18 is leap second adjustment
     # T_ppk['datetime'] = T_ppk['datetime'] - DT.timedelta(seconds=18)  # making sure both are equal
@@ -360,116 +324,94 @@ def main(
         T_ppk["lat"], T_ppk["lon"], T_ppk["height"], geoidFile=geoid
     )
     # 6.3: now plot my time offset between GPS and sonar
-    if time_sync_method != "native":
-        pc_time_off = payload_gps_data["pc_time_gga"] + ET2UTC - payload_gps_data["gps_time"]
-        ofname = os.path.join(plotDir, "clock_offset.png")
-        yellowfinLib.plot_qaqc_time_offset_determination(ofname, pc_time_off)
-    else:
-        pc_time_off = np.array(0)  # in this case GNSS time is native time
+    pc_time_off = payloadGpsData["pc_time_gga"] + ET2UTC - payloadGpsData["gps_time"]
+
+    ofname = os.path.join(plotDir, "clockOffset.png")
+    # TODO pull this figure out to a function
+    yellowfinLib.qaqc_time_offset_determination(ofname, pc_time_off)
     # 6.4 Use the cerulean instantaneous bed detection since not sure about delay with smoothed
     # adjust time of the sonar time stamp with timezone shift (ET -> UTC) and the timeshift between the computer and GPS
     sonarData["time"] = sonarData["time"] + ET2UTC - np.median(pc_time_off)  # convert to UTC
-    if time_sync_method in acceptable_time_sync and time_sync_method == "default":
-        sonar_bottom_algorithm_m = sonarData["this_ping_depth_m"]
+    if sonar_method == "default":
+        sonar_range = sonarData["this_ping_depth_m"]
         qualityLogic = sonarData["this_ping_depth_measurement_confidence"] > instant_sonar_confidence
-    elif time_sync_method in acceptable_time_sync and time_sync_method == "smooth":
-        sonar_bottom_algorithm_m = sonarData["smooth_depth_m"]
+    elif sonar_method == "smooth":
+        sonar_range = sonarData["smooth_depth_m"]
         qualityLogic = sonarData["smoothed_depth_measurement_confidence"] > smoothed_sonar_confidence
-    elif time_sync_method in acceptable_time_sync and time_sync_method == "instant":
-        sonar_bottom_algorithm_m = sonarData["this_ping_depth_m"]
+    elif sonar_method == "instant":
+        sonar_range = sonarData["this_ping_depth_m"]
         qualityLogic = sonarData["this_ping_depth_measurement_confidence"] > instant_sonar_confidence
-    elif time_sync_method in acceptable_time_sync and time_sync_method == "native":
-        sonar_bottom_algorithm_m = sonarData["this_ping_depth_m"]
-        qualityLogic = np.ones_like(sonar_bottom_algorithm_m, dtype=bool)
-    elif time_sync_method not in acceptable_time_sync:
-        raise ValueError(f"acceptable sonar methods include {acceptable_time_sync}")
-    # else:
-    #     sonar_range =
-
-    # 6.5 now plot sonar with time
-    ofname = os.path.join(plotDir, f"{timeString}_SonarBackScatter.png")
-    yellowfinLib.plot_qaqc_sonar_profiles(ofname, sonarData)
-
-    ofname = os.path.join(plotDir, f"{timeString}_AllData.png")
-    yellowfinLib.plot_qaqc_all_data_in_time(ofname, sonarData, sonar_bottom_algorithm_m, payload_gps_data, T_ppk)
-
-    if time_sync_method == "native":
-        sonar_time_out = sonarData["time"]
     else:
-        # 6.7 # plot sonar, select indices of interest, and then second subplot is time of interest
-        ofname = os.path.join(plotDir, f"{timeString}_subsetForCrossCorrelation.png")
-        sonarIndicies = yellowfinLib.plot_sonar_pick_cross_correlation_time(ofname, sonar_bottom_algorithm_m)
-        # now identify corresponding times from ppk GPS to those times of sonar that we're interested in
-        indsPPK = np.where(
-            (T_ppk["epochTime"] >= sonarData["time"][sonarIndicies[0]])
-            & (T_ppk["epochTime"] <= sonarData["time"][sonarIndicies[-1]])
-        )[0]
+        raise ValueError('acceptable sonar methods include ["instant", "smooth"]')
+    # use the above to adjust whether you want smoothed/filtered data or raw ping depth values
 
-        # 6.7 interpolate and calculate the phase offset between the signals
+    ofname = os.path.join(plotDir, "SonarBackScatter.png")
+    # 6.5 now plot sonar with time
+    yellowfinLib.qaqc_sonar_profiles(ofname, sonarData)
+    ofname = os.path.join(plotDir, "AllData.png")
 
-        ## now interpolate the lower sampled (sonar 3.33 hz) to the higher sampled data (gps 10 hz)
-        # identify common timestamp to interpolate to at higher frequency
-        commonTime = np.linspace(
-            T_ppk["epochTime"][indsPPK[0]],
-            T_ppk["epochTime"][indsPPK[-1]],
-            int((T_ppk["epochTime"][indsPPK[-1]] - T_ppk["epochTime"][indsPPK[0]]) / 0.1),
-            endpoint=True,
-        )
+    yellowfinLib.qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T_ppk)
 
-        # always use instant ping for time offset calculation
-        f = interpolate.interp1d(sonarData["time"], sonarData["this_ping_depth_m"])
-        sonar_range_i = f(commonTime)
-        f = interpolate.interp1d(T_ppk["epochTime"], T_ppk["height"])
-        ppkHeight_i = f(commonTime)
-        # now i have both signals at the same time stamps
-        phaseLagInSamps, phaseLaginTime = yellowfinLib.findTimeShiftCrossCorr(
-            signal.detrend(ppkHeight_i),
-            signal.detrend(sonar_range_i),
-            sampleFreq=np.median(np.diff(commonTime)),
-        )
+    ofname = os.path.join(plotDir, "subsetForCrossCorrelation.png")
 
-        ofname = os.path.join(plotDir, f"{timeString}_subsetAfterCrossCorrelation.png")
-        yellowfinLib.plot_qaqc_post_sonar_time_shift(
-            ofname,
-            T_ppk,
-            indsPPK,
-            commonTime,
-            ppkHeight_i,
-            sonar_range_i,
-            phaseLaginTime,
-            sonarData,
-            sonarIndicies,
-            sonar_bottom_algorithm_m,
-        )
+    # 6.7 # plot sonar, select indices of interest, and then second subplot is time of interest
+    sonarIndicies = yellowfinLib.sonar_pick_cross_correlation_time(ofname, sonar_range)
+    # now identify corresponding times from ppk GPS to those times of sonar that we're interested in
+    indsPPK = np.where(
+        (T_ppk["epochTime"] >= sonarData["time"][sonarIndicies[0]])
+        & (T_ppk["epochTime"] <= sonarData["time"][sonarIndicies[-1]])
+    )[0]
 
-        print(f"sonar data adjusted by {phaseLaginTime:.3f} seconds")
+    # 6.7 interpolate and calculate the phase offset between the signals
 
-        ## now process all data for saving to file
-        sonar_time_out = sonarData["time"] + phaseLaginTime
+    ## now interpolate the lower sampled (sonar 3.33 hz) to the higher sampled data (gps 10 hz)
+    # identify common timestamp to interpolate to at higher frequency
+    commonTime = np.linspace(
+        T_ppk["epochTime"][indsPPK[0]],
+        T_ppk["epochTime"][indsPPK[-1]],
+        int((T_ppk["epochTime"][indsPPK[-1]] - T_ppk["epochTime"][indsPPK[0]]) / 0.1),
+        endpoint=True,
+    )
+
+    # always use instant ping for time offset calculation
+    f = interpolate.interp1d(sonarData["time"], sonarData["this_ping_depth_m"])
+    sonar_range_i = f(commonTime)
+    f = interpolate.interp1d(T_ppk["epochTime"], T_ppk["height"])
+    ppkHeight_i = f(commonTime)
+    # now i have both signals at the same time stamps
+    phaseLagInSamps, phaseLaginTime = yellowfinLib.findTimeShiftCrossCorr(
+        signal.detrend(ppkHeight_i), signal.detrend(sonar_range_i), sampleFreq=np.median(np.diff(commonTime))
+    )
+
+    ofname = os.path.join(plotDir, "subsetAfterCrossCorrelation.png")
+    yellowfinLib.qaqc_post_sonar_time_shift(
+        ofname,
+        T_ppk,
+        indsPPK,
+        commonTime,
+        ppkHeight_i,
+        sonar_range_i,
+        phaseLaginTime,
+        sonarData,
+        sonarIndicies,
+        sonar_range,
+    )
+
+    print(f"sonar data adjusted by {phaseLaginTime:.3f} seconds")
+
+    ## now process all data for saving to file
+    sonar_time_out = sonarData["time"] + phaseLaginTime
 
     ## ok now put the sonar data on the GNSS timestamps which are decimal seconds.  We can do this with sonar_time_out,
     # because we just adjusted by the phase lag to make sure they are time synced.
     timeOutInterpStart = np.ceil(sonar_time_out.min() * 10) / 10  # round to nearest 0.1
     timeOutInterpEnd = np.floor(sonar_time_out.max() * 10) / 10  # round to nearest 0.1
     # create a timestamp for data to be output and in phase with that of the ppk gps data which are on the 0.1 s
-    dt = (
-        np.round(
-            min(
-                np.median(np.diff(T_ppk["epochTime"])),
-                np.median(np.diff(sonarData["time"])),
-            )
-            * 10
-        )
-        / 10
-    )
     time_out = np.linspace(
-        timeOutInterpStart,
-        timeOutInterpEnd,
-        int((timeOutInterpEnd - timeOutInterpStart) / dt),
-        endpoint=True,
+        timeOutInterpStart, timeOutInterpEnd, int((timeOutInterpEnd - timeOutInterpStart) / 0.1), endpoint=True
     )
 
-    logging.info(
+    print(
         "TODO: here's where some better filtering could be done, probably worth saving an intermediate product here "
         "for future revisit"
     )
@@ -479,7 +421,7 @@ def main(
         f"sonar confidence > {smoothed_sonar_confidence}"
     )
 
-    # now pair relevant GNSS and sonar on output newly generated time_out
+    # now put relevant GNSS and sonar on output timestamps
     # initalize out variables
     sonar_smooth_depth_out, sonar_smooth_confidence_out = (
         np.zeros_like(time_out) * np.nan,
@@ -496,14 +438,8 @@ def main(
         np.zeros_like(time_out) * np.nan,
         np.zeros_like(time_out) * np.nan,
     )
-    elevation_out, fix_quality = (
-        np.zeros_like(time_out) * np.nan,
-        np.zeros_like(time_out) * np.nan,
-    )
-    gnss_out, sonar_out = (
-        np.zeros_like(bad_lat_out) * np.nan,
-        np.zeros_like(time_out) * np.nan,
-    )
+    elevation_out, fix_quality = np.zeros_like(time_out) * np.nan, np.zeros_like(time_out) * np.nan
+    gnss_out, sonar_out = np.zeros_like(bad_lat_out) * np.nan, np.zeros_like(time_out) * np.nan
     # loop through my common time (.1 s increment) and find associated sonar and gnss values; this might be slow
     for tidx, tt in tqdm.tqdm(enumerate(time_out), desc="Filter & Time Match"):
         idxTimeMatchGNSS, idxTimeMatchGNSS = None, None
@@ -519,7 +455,7 @@ def main(
         if ppklogic.min() <= 0.101:  # .101 handles numerics
             idxTimeMatchGNSS = np.argmin(ppklogic)
 
-        # if we have both sonar and GNSS for this time step, then we log the data as matched
+        # if we have both sonar and GNSS for this time step, then we log the data
         if idxTimeMatchGNSS is not None and idxTimeMatchSonar is not None:  # we have matching data
             # if it passes quality thresholds
             if T_ppk["Q"][idxTimeMatchGNSS] <= ppk_quality_threshold and qualityLogic[idxTimeMatchSonar]:
@@ -538,7 +474,7 @@ def main(
                 gnss_out[tidx] = T_ppk["GNSS_elevation_NAVD88"][idxTimeMatchGNSS]
                 fix_quality[tidx] = T_ppk["Q"][idxTimeMatchGNSS]
                 # now log elevation outs depending on which sonar i want to log
-                if time_sync_method == "default":
+                if sonar_method == "default":
                     elevation_out[tidx] = (
                         T_ppk["GNSS_elevation_NAVD88"][idxTimeMatchGNSS]
                         - antenna_offset
@@ -546,7 +482,7 @@ def main(
                     )
                     sonar_out[tidx] = sonarData["smooth_depth_m"][idxTimeMatchSonar]
 
-                elif time_sync_method == "smooth":
+                elif sonar_method == "smooth":
                     elevation_out[tidx] = (
                         T_ppk["GNSS_elevation_NAVD88"][idxTimeMatchGNSS]
                         - antenna_offset
@@ -554,14 +490,7 @@ def main(
                     )
                     sonar_out[tidx] = sonarData["smooth_depth_m"][idxTimeMatchSonar]
 
-                elif time_sync_method == "instant":
-                    elevation_out[tidx] = (
-                        T_ppk["GNSS_elevation_NAVD88"][idxTimeMatchGNSS]
-                        - antenna_offset
-                        - sonarData["this_ping_depth_m"][idxTimeMatchSonar]
-                    )
-                    sonar_out[tidx] = sonarData["this_ping_depth_m"][idxTimeMatchSonar]
-                elif time_sync_method == "native":
+                elif sonar_method == "instant":
                     elevation_out[tidx] = (
                         T_ppk["GNSS_elevation_NAVD88"][idxTimeMatchGNSS]
                         - antenna_offset
@@ -581,41 +510,18 @@ def main(
     # convert the lon/lat data we care about to FRF coords
     coords = geoprocess.FRFcoord(lon_out[idxDataToSave], lat_out[idxDataToSave], coordType="LL")
 
-    # identify if data are local to the FRF, will be used later to process FRF specific data quantities
-    is_local_FRF = yellowfinLib.is_local_to_FRF(coords)
-
-    if not is_local_FRF:
+    FRF = yellowfinLib.is_local_to_FRF(coords)
+    if not FRF:
         logging.info("identified data as NOT Local to the FRF")
-    else:  # start argus download as soon as we know its FRF data
-        glob_argus_result = glob.glob(os.path.join(plotDir, "*rgus*.tif"))
-        if len(glob_argus_result) == 1:
-            argusGeotiff = glob_argus_result[0]
-        else:
-            argusGeotiff = None
-            # below was throwing errors
-            # argusGeotiff = yellowfinLib.threadGetArgusImagery(DT.datetime.strptime(timeString, '%Y%m%d') +
-            #                                                   DT.timedelta(hours=14),
-            #                                                   ofName=os.path.join(plotDir, f'Argus_{timeString}.tif'),
-            #                                                   imageType='timex')
-
-    ofname = os.path.join(plotDir, f"{timeString}_FinalDataProduct.png")
+    ofname = os.path.join(plotDir, "FinalDataProduct.png")
     yellowfinLib.plot_planview_lonlat(
-        ofname=ofname,
-        T_ppk=T_ppk,
-        bad_lon_out=bad_lon_out,
-        bad_lat_out=bad_lat_out,
-        elevation_out=elevation_out,
-        lat_out=lat_out,
-        lon_out=lon_out,
-        timeString=timeString,
-        idxDataToSave=idxDataToSave,
-        FRF=is_local_FRF,
+        ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, lon_out, lat_out, timeString, idxDataToSave, FRF
     )
 
-    # now make a data packet to save
-    data_product = {
+    # now make data packat to save
+    data = {
         "time": time_out[idxDataToSave],
-        "date": np.ones_like(time_out[idxDataToSave]) * DT.datetime.strptime(timeString[:8], "%Y%m%d").timestamp(),
+        "date": DT.datetime.strptime(timeString, "%Y%m%d").timestamp(),
         "Latitude": lat_out[idxDataToSave],
         "Longitude": lon_out[idxDataToSave],
         "Northing": coords["StateplaneN"],
@@ -623,47 +529,27 @@ def main(
         "Elevation": elevation_out[idxDataToSave],
         "Ellipsoid": np.ones_like(elevation_out[idxDataToSave]) * -999,
     }
+    if FRF is True:
+        data["xFRF"] = coords["xFRF"]
+        data["yFRF"] = coords["yFRF"]
+        data["Profile_number"] = (np.ones_like(elevation_out[idxDataToSave]) * -999,)
+        data["Survey_number"] = np.ones_like(elevation_out[idxDataToSave]) * -999
+        yellowfinLib.plotPlanViewOnArgus(data, argusGeotiff, ofName=os.path.join(plotDir, "yellowfinDepthsOnArgus.png"))
 
-    if is_local_FRF == True:
-        data_product["xFRF"] = coords["xFRF"]
-        data_product["yFRF"] = coords["yFRF"]
-        data_product["Profile_number"] = np.ones_like(elevation_out[idxDataToSave]) * -999
-        data_product["Survey_number"] = np.ones_like(elevation_out[idxDataToSave]) * -999
-        yellowfinLib.plot_plan_view_on_argus(
-            data_product,
-            argusGeotiff,
-            ofName=os.path.join(plotDir, f"{timeString}_yellowfinDepthsOnArgus.png"),
-        )
+        ofname = os.path.join(plotDir, "singleProfile.png")
+        yellowfinLib.plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave)
 
-        ofname = os.path.join(plotDir, f"{timeString}_singleProfile.png")
-        yellowfinLib.plot_planview_FRF_with_profile(
-            ofname,
-            coords,
-            instant_depths=gnss_out[idxDataToSave] - antenna_offset - sonar_instant_depth_out[idxDataToSave],
-            smoothed_depths=gnss_out[idxDataToSave] - antenna_offset - sonar_smooth_depth_out[idxDataToSave],
-            processed_depths=elevation_out[idxDataToSave],
-        )
+        data["UNIX_timestamp"] = data["time"]
+        data = yellowfinLib.transectSelection(
+            pd.DataFrame.from_dict(data), outputDir=plotDir
+        )  # bombs out on non-frf data
+        data["Profile_number"] = data.pop("profileNumber")
+        data["Profile_number"].iloc[np.argwhere(data["Profile_number"].isnull()).squeeze()] = -999
 
-        data_product["UNIX_timestamp"] = data_product["time"]
-        # if np.size(data_product['date']) == 1:
-        #     data_product['date'] = np.ones_like(data_product['time']) * data_product['date']
-        # save = data_product.pop("date")
-        data_product = yellowfinLib.transect_selection_tool(pd.DataFrame.from_dict(data_product), outputDir=plotDir)
-        data_product["Profile_number"] = data_product["profileNumber"]
-        mask = data_product["Profile_number"].isnull()
-        data_product.loc[mask, "Profile_number"] = -999  # assign -999's instead of NaN's before write
-
-        ## now make netCDF files
-        ofname = os.path.join(datadir, f"FRF_geomorphology_elevationTransects_survey_{timeString}.nc")
-    else:
-        # below bombs out on non-FRF data
-        # data = yellowfinLib.transect_selection_tool(pd.DataFrame.from_dict(data), outputDir=plotDir)
-        ofname = os.path.join(datadir, f"{'output_data'}_geomorphology_elevationTransects_survey_{timeString}.nc")
+    ## now make netCDF files
+    ofname = os.path.join(datadir, f"FRF_geomorphology_elevationTransects_survey_{timeString}.nc")
     py2netCDF.makenc_generic(
-        ofname,
-        globalYaml="yamlFile/transect_global.yml",
-        varYaml="yamlFile/transect_variables.yml",
-        data=data_product,
+        ofname, globalYaml="yamlFile/transect_global.yml", varYaml="yamlFile/transect_variables.yml", data=data
     )
 
     outputfile = os.path.join(datadir, f"{timeString}_totalCombinedRawData.h5")
@@ -682,16 +568,10 @@ def main(
         hf.create_dataset("bad_lat", data=bad_lat_out)
         hf.create_dataset("bad_lon", data=bad_lon_out)
         hf.create_dataset("sonar_depth_bin", data=sonarData["range_m"])
-        if is_local_FRF is True:
+        if FRF is True:
             hf.create_dataset("xFRF", data=coords["xFRF"])
             hf.create_dataset("yFRF", data=coords["yFRF"])
-            hf.create_dataset("Profile_number", data=data_product["Profile_number"])
-
-    # Make mission summary YAML based on user prompted inputs, write to datadir
-    make_summary_yaml(datadir)
-
-    # Make mission failure YAML based on user prompted inputs, write to datadir
-    make_failure_yaml(datadir)
+            hf.create_dataset("Profile_number", data=data["Profile_number"])
 
 
 if __name__ == "__main__":
@@ -701,8 +581,8 @@ if __name__ == "__main__":
     extra_args = None
     if args.config is not None and args.config.endswith(".yaml"):
         yaml_config = parse_config_yaml(args.config)
-        # args = update_namespace_from_dict(args, yaml_config)
-        yaml_config = deconflict_args(args, yaml_config)
+        args = update_namespace_from_dict(args, yaml_config)
+        extra_args = yaml_config["extra_args"]
     elif args.config is not None:
         raise AttributeError("config file must end with .yaml")
 
@@ -713,6 +593,10 @@ if __name__ == "__main__":
         makePos=args.make_pos,
         verbose=args.verbosity,
         rtklib_executable_path=args.rtklib_executable,
-        yaml_config=yaml_config,
+        sonar_method=args.sonar_method,
+        ppk_quality_threshold=args.ppk_quality_threshold,
+        smoothed_sonar_confidence=args.smoothed_sonar_confidence,
+        instant_sonar_confidence=args.instant_sonar_confidence,
+        extra_args=extra_args,
     )
     logging.info(f"success processing {args.data_dir}")
