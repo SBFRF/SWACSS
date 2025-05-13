@@ -1,7 +1,7 @@
 import os
 import matplotlib
 
-matplotlib.use("TkAgg")
+# matplotlib.use("TkAgg")
 from scipy import interpolate, signal
 import py2netCDF
 import yellowfinLib
@@ -244,7 +244,7 @@ def main(
         yellowfinLib.load_yellowfin_NMEA_files(
             fpathGNSS,
             saveFname=save_fname_gnss,
-            plotfname=os.path.join(plotDir, "GPSpath_fromNMEAfiles.png"),
+            #plotfname=os.path.join(plotDir, "GPSpath_fromNMEAfiles.png"), # confusing plot
             verbose=verbose,
         )
     else:  # we've already generated this fpathGNSS file

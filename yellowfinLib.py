@@ -248,12 +248,11 @@ def loadSonar_ectd032_ascii(
 
 
 def loadSonar_s500_binary(dataPath, h5_ofname=None, verbose=False):
-    """Loads and concatenates all of the binary files (*.dat) located in the dataPath location
+    """Loads and concatenates all binary files (*.dat) located in the dataPath location
 
     :param dataPath: search path for sonar data files
     :param outfname: string to save h5 file. If None it will skip this process. (Default =None)
     :param verbose: turn on print statement for file names as loading (1 is little print, 2 is detailed print)
-    :return: pandas data frame of sonar data
     """
     # find dat files for sonar
     dd = sorted(glob.glob(os.path.join(dataPath, "*.dat")))
@@ -602,8 +601,12 @@ def plot_single_backscatterProfile(fname, time, sonarRange, profile_data, this_p
 
 def mLabDatetime_to_epoch(dt):
     """Convert matlab datetime to unix Epoch time"""
-    epoch = DT.datetime(1970, 1, 1, tzinfo=DT.timezone.utc)
-    delta = dt - epoch
+    try:
+        epoch = DT.datetime(1970, 1, 1, tzinfo=DT.timezone.utc)
+        delta = dt - epoch
+    except TypeError:
+        epoch = DT.datetime(1970, 1, 1)
+        delta = dt - epoch
     return delta.total_seconds()
 
 
@@ -781,11 +784,16 @@ def load_yellowfin_NMEA_files(fpath: str, saveFname: str, plotfname: str = False
     if plotfname is not False:
         plt.figure(figsize=(12, 4))
         plt.subplot(121)
-        plt.plot(lon, lat, "-.")
+        plt.plot(lon, lat, ".")
+        plt.ylabel('longitude')
+        plt.xlabel('latitude')
         plt.subplot(122)
         # plt.plot(pc_time_gga, altWGS84, '.-')
         # plt.plot(pc_time_gga, geoSep, label='geoSep')
-        plt.plot(pc_time_gga, altMSL, ".-", label="altMSL")
+        plt.plot(pc_time_gga, altMSL, ".", label="altMSL")
+        plt.ylabel('Altitude MSL [m]')
+        plt.xlabel('time_from_sys_clock')
+        plt.tight_layout()
         plt.savefig(plotfname)
         plt.close()
 
@@ -1441,7 +1449,7 @@ def plot_planview_lonlat(
     # make a final plot of all the processed data
     pierStart = geoprocess.FRFcoord(0, 515, coordType="FRF")
     pierEnd = geoprocess.FRFcoord(534, 515, coordType="FRF")
-
+    plt.close()
     plt.figure(figsize=(12, 8))
     plt.scatter(
         lon_out[idxDataToSave],
@@ -1459,6 +1467,8 @@ def plot_planview_lonlat(
     plt.ylabel("latitude", fontsize=fs)
     plt.xlabel("longitude", fontsize=fs)
     plt.title(f"final data with elevations {timeString}", fontsize=fs + 4)
+    # plt.ylim([lat_out[idxDataToSave].min(), lat_out[idxDataToSave].max()])
+    # plt.xlim([lat_out[idxDataToSave].min(), lat_out[idxDataToSave].max()])
     plt.tight_layout()
     plt.legend()
     plt.savefig(ofname)
@@ -1564,7 +1574,6 @@ def plot_qaqc_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T
     plt.savefig(ofname)
     plt.close()
 
-
 def plot_qaqc_sonar_profiles(ofname, sonarData):
     # unpack dictionary
     sonar_epoch_time = sonarData["time"]
@@ -1577,6 +1586,7 @@ def plot_qaqc_sonar_profiles(ofname, sonarData):
     sonar_backscatter_range_m = sonarData["range_m"]
     y_lim_max = 10 if sonar_backscatter_range_m.max() > 10 else sonar_backscatter_range_m.max()
     ################################################################3
+
     plt.figure(figsize=(18, 6))
     cm = plt.pcolormesh(sonar_time, sonar_backscatter_range_m, sonar_backscatter)
     cbar = plt.colorbar(cm)
