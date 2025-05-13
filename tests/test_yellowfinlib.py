@@ -62,7 +62,7 @@ def test_high_freq_sine_attenuated(fs, order):
 def test_loadSonar_s500_binary():
     s500_folder = 'tests/files/s500_test_files'  # this is where to search for s500 files (function searches folder)
     read_out = 'tests/files/s500_test_files/test.h5'  # file name to make through read funciton
-    ground_truth = 'tests/files/s500_unit_test_20240528120946.h5' # file to compare as known
+    ground_truth = 'tests/files/s500_test_files/s500_unit_test_20240528120946.h5' # file to compare as known
     yellowfinLib.loadSonar_s500_binary(s500_folder, read_out)
     generated = yellowfinLib.load_h5_to_dictionary(read_out)
     truth = yellowfinLib.load_h5_to_dictionary(ground_truth)
