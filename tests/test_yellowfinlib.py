@@ -1,5 +1,7 @@
 import os
 import sys
+import os
+import yellowfinLib
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import yellowfinLib as yfl
@@ -56,3 +58,17 @@ def test_high_freq_sine_attenuated(fs, order):
     rms_in = np.sqrt(np.mean(data**2))
     rms_out = np.sqrt(np.mean(out**2))
     assert rms_out < 0.1 * rms_in, f"High‐freq ({f_high}Hz) should be strongly attenuated"
+
+def test_loadSonar_s500_binary():
+    s500_folder = 'tests/files/s500_test_files'  # this is where to search for s500 files (function searches folder)
+    read_out = 'tests/files/s500_test_files/test.h5'  # file name to make through read funciton
+    ground_truth = 'tests/files/s500_unit_test_20240528120946.h5' # file to compare as known
+    yellowfinLib.loadSonar_s500_binary(s500_folder, read_out)
+    generated = yellowfinLib.load_h5_to_dictionary(read_out)
+    truth = yellowfinLib.load_h5_to_dictionary(ground_truth)
+
+    keys_truth = list(truth.keys())
+    for key in generated.keys():
+        assert key in keys_truth, f"generated key: {key} does not exist in saved benchmark s500 sonar file"
+        assert (truth[key] == generated[key]).all()
+    os.remove(read_out)
