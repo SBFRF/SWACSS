@@ -98,7 +98,12 @@ def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
 def loadSonar_ectd032_ascii(
     f_path_sonar: str, h5_ofname: str, verbose: bool = False, of_plot=None, high_low="low", combine=False
 ):
-
+    level = logging.WARN
+    if verbose == 1:
+        level = logging.INFO
+    elif verbose == 2:
+        level = logging.DEBUG
+    logging.basicConfig(level=level)
     flist_load = sorted(glob.glob(os.path.join(f_path_sonar, f"*{high_low}*.txt")))
     # "/data/blueboat/2025/{date.strftime('%Y%m%d')}/ect-D032/{date.strftime('%Y-%m-%d')}/ECT-D032_{high_low}_{date.strftime('%Y%m%d')}-*.txt"))
     if len(flist_load) == 0:  # if i didn't find it first, maybe i need to unpack in a dated subfolder
@@ -126,9 +131,11 @@ def loadSonar_ectd032_ascii(
     if verbose == 1:
         print(f"processing {len(flist_load)} ect-d032 files data files")
     backscatter_total, metadata_total = [], []
-    for fname_1 in flist_load:
+    backscatter_expected_size = None
+    for ff, fname_1 in enumerate(flist_load):
+        if verbose == 1: print(f"{ff} processing {fname_1}")
         with open(fname_1, "r", encoding="utf-8") as fid:
-            backscatter_fname1, metadata_fname1 = [], []
+            backscatter_header_list, backscatter_fname1, metadata_fname1 = [], [], []
             counter = 0  # count number of dashed lines to mark end of header
             for ll, line in enumerate(fid):
                 line = line.strip()
@@ -136,10 +143,21 @@ def loadSonar_ectd032_ascii(
                     logging.debug(f"{ll}, {line}")
                 split_line = line.split(",")
                 if len(split_line) == 6:
-                    metadata_fname1.append(line.split(","))
+                    metadata_fname1.append(split_line)
+                elif len(split_line) > 6  and ll <3:
+                    backscatter_header_list.append(split_line)
                 elif len(split_line) > 6:
-                    backscatter_fname1.append(line.split(","))
-                    # backscatter = np.array(line.split(','), dtype=int)
+                    # # writes backscatter data to list to be put to array later
+                    if ff == 0 and backscatter_expected_size == None:  # if its the first file, assume its properly formed
+                        backscatter_fname1.append(split_line)
+                        backscatter_expected_size = len(split_line)
+                    elif ff == 0:
+                        backscatter_fname1.append(split_line)
+                    elif (len(split_line) == backscatter_expected_size): #((len(split_line) ==) backscatter.shape[1]) or (len(split_line) == backscatter_total[0].shape[1]):  # check to make sure following are properly formed
+                        backscatter_fname1.append(split_line)
+                    else: # clean up metadata line to properly aligh
+                         _ = metadata_fname1.pop()  # remove last field
+
                 elif counter == 2 and ll % 2 == 1:
                     metadata_fname1.append(line.split(","))
                 elif line.startswith("-----"):
@@ -161,8 +179,8 @@ def loadSonar_ectd032_ascii(
             # print(metadata)
             # meta_header = metadata_fname1[0]
             metadata = np.array(metadata_fname1[1:], dtype=float)
-            backscatter_header = backscatter_fname1[:2]
-            backscatter = np.array(backscatter_fname1[2:], dtype=int)
+            backscatter_header = backscatter_header_list
+            backscatter = np.array(backscatter_fname1, dtype=int)
         # now append recent data to total data
         if len(backscatter_fname1) > 0:
             # print(f'tada _ loaded {fname_1}, shape: {np.array(backscatter_fname1).shape}')
