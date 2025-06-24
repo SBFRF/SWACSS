@@ -367,8 +367,8 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     if not FRF:
         logging.info("identified data as NOT Local to the FRF")
     ofname = os.path.join(plotDir, 'FinalDataProduct.png')
-    yellowfinLib.plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, lon_out,
-                                       lat_out, timeString, idxDataToSave, FRF)
+    yellowfinLib.plot_planview_lonlat(ofname, T_ppk, bad_lon_out, bad_lat_out, elevation_out, lat_out,
+                                       lon_out, timeString, idxDataToSave, FRF)
 
 
     #now make data packat to save
