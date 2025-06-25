@@ -185,7 +185,14 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
     )
     rangev = np.zeros((allocateSize * 2, allocateSize))  # arbitrary large value for time
 
-    profile_data = np.zeros((allocateSize * 2, allocateSize))
+    try:
+        profile_data = np.zeros((allocateSize * 2, allocateSize))
+    except MemoryError:
+        try:
+            profile_data = np.zeros((allocateSize * 2, allocateSize), dtype=np.float16)
+        except:
+            raise SystemExit("Not enough RAM")
+        
     if verbose == 1:
         print(f"processing {len(dd)} s500 files data files")
 
@@ -341,7 +348,7 @@ def load_h5_to_dictionary(fname):
 
 
 def makePOSfileFromRINEX(
-    roverObservables, baseObservables, navFile, outfname, executablePath="rnx2rtkp", **kwargs
+    roverObservables, baseObservables, navFile, outfname, configFile, executablePath="rnx2rtkp",**kwargs
 ):
     """uses RTKLIB rnx2rtkp to post process
     Args:
@@ -359,15 +366,25 @@ def makePOSfileFromRINEX(
         https://rtkexplorer.com/pdfs/manual_demo5.pdf
     """
     # arguments for command here: https://rtkexplorer.com/pdfs/manual_demo5.pdf
+
     sp3 = kwargs.get("sp3", "")
-    freq = kwargs.get("freq", 3)
 
     logging.debug(
         f"converting {os.path.basename(roverObservables)} using RTKLIB: Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp"
     )
-    os.system(
-        f"./{executablePath} -o {outfname} -t -u -f {freq} {roverObservables} {baseObservables} {navFile} {sp3}"
-    )
+
+    # If using a Windows machine
+    if os.name == 'nt':
+        os.system(
+            f"{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile} {sp3}"
+        )
+    else:
+        os.system(
+            f"./{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile}  {sp3}"
+        )
+
+
+   
 
 
 def plot_single_backscatterProfile(
@@ -719,9 +736,18 @@ def loadPPKdata(fldrlistPPK):
             #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine="python")
             # except ValueError:
             #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine="python")
+
+            # Determines how many rows to skip in the POS file
+            with open(fn, 'r') as f:
+                skip_rows = 0
+                for line in f:
+                    if line.lstrip().startswith('202'):  # crude date check
+                        break
+                    skip_rows += 1
+
             colNames = ["date", "time", "lat", "lon", "height", "Q", "ns", "sdn(m)", "sde(m)", "sdu(m)", "sdne(m)",
                  "sdeu(m)", "sdun(m)", "age(s)", "ratio"]
-            Tpos = pd.read_fwf(fn, skiprows=12, infer_nrows=1000, names=colNames) # fixed width reader
+            Tpos = pd.read_fwf(fn, skiprows=skip_rows, infer_nrows=1000, names=colNames) # fixed width reader
             logging.info(f"loaded {fn}")
             if all(Tpos.iloc[-1]):  # if theres nan's in the last row
                 Tpos = Tpos.iloc[:-1]  # remove last row

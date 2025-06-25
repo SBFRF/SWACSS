@@ -170,9 +170,10 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
                 flist_rinex = glob.glob(ff[:-4] + "/*")
                 rover_obs_fname = flist_rinex[np.argwhere([i.endswith('O') for i in flist_rinex]).squeeze()]
                 outfname = os.path.join(os.path.dirname(rover_obs_fname), os.path.basename(flist_rinex[0])[:-3] + "pos")
+                configPath = "configFile/rtkpost.conf"
                 # use below if the rover nav file is the right call
-                yellowfinLib.makePOSfileFromRINEX(roverObservables=rover_obs_fname, baseObservables=base_obs_fname, navFile=base_nav_file,
-                                                  outfname=outfname, executablePath=rtklib_executable_path, sp3=sp3_fname)
+                yellowfinLib.makePOSfileFromRINEX(roverObservables=rover_obs_fname,baseObservables=base_obs_fname, navFile=base_nav_file, outfname=outfname, 
+                                                  configFile=configPath, executablePath=rtklib_executable_path,sp3=sp3_fname)
 
         # Now find all the folders that have ppk data in them (*.pos files in folders that have "raw" in them)
         # now identify the folders that have rinex in them
