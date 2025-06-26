@@ -63,6 +63,8 @@ convention of `MM-dd-YYYY` though this is checked against the root data director
 ## Generating POS Files: 
 __configFile__ - this folder is expected to have `rtkpost.conf`, which defines the processing parameters used by RTKLIB. They can be modified and adjusted as needed
 
+You can read more about the configuration file [here (pg. 109)](https://www.rtklib.com/prog/manual_2.4.2.pdf). Additionally, you can use RTKPost to determine the configurations desired and export (save) the file. 
+
 __ref__ - this folder is expected to have both `igs20.atx` and `ngs_abs.pcv` which provide antenna calibration and phase center variation data. It is referenced within the `rtkpost.conf` file to apply antenna offset corrections
 
 The PCV was found [here](https://www.ngs.noaa.gov/ANTCAL/LoadFile?file=ngs20.003) and saved as **ngs_abs.pcv**. The ATX file was found [here](https://files.igs.org/pub/station/general/).

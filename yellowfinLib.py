@@ -191,7 +191,7 @@ def loadSonar_s500_binary(dataPath, outfname=None, verbose=False):
         try:
             profile_data = np.zeros((allocateSize * 2, allocateSize), dtype=np.float16)
         except:
-            raise SystemExit("Not enough RAM")
+            raise SystemExit("Not enough memory to pre-allocate sonar data")
         
     if verbose == 1:
         print(f"processing {len(dd)} s500 files data files")
@@ -375,13 +375,11 @@ def makePOSfileFromRINEX(
 
     # If using a Windows machine
     if os.name == 'nt':
-        os.system(
-            f"{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile} {sp3}"
-        )
+        command = f"{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile} {sp3}"
     else:
-        os.system(
-            f"./{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile}  {sp3}"
-        )
+        command = f"./{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile} {sp3}"
+
+    os.system(command)
 
 
    
@@ -741,7 +739,8 @@ def loadPPKdata(fldrlistPPK):
             with open(fn, 'r') as f:
                 skip_rows = 0
                 for line in f:
-                    if line.lstrip().startswith('202'):  # crude date check
+                    if line.lstrip().startswith('%  GPST'):  #line right before data
+                        skip_rows += 1
                         break
                     skip_rows += 1
 
