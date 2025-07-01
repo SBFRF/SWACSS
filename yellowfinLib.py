@@ -698,6 +698,31 @@ def butter_lowpass_filter(data, cutoff, fs, order):
     # y = filtfilt(b, a, data)
     return output
 
+def skiprows(fldrlistPPK):
+    """ This function determines how many rows to skip in the POS fie before grabing the data. 
+
+    :param fldrlistPPK: a list of folders with ind
+    :return: int containing the number of rows to skip
+    """
+
+    for fldr in sorted(fldrlistPPK):
+        # this is before ppk processing so should agree with nmea strings
+        # fn = glob.glob(os.path.join(fldr, "*.pos"))
+        fn = os.path.join(fldr, os.path.basename(fldr).split("_R")[0] + ".pos")
+        try:
+            # Determines how many rows to skip in the POS file
+            with open(fn, 'r') as f:
+                skip_rows = 0
+                for line in f:
+                    if line.lstrip().startswith('%  GPST'):  #line right before data
+                        skip_rows += 1
+                        break
+                    skip_rows += 1
+
+        except:  # this is in the event there is no data in the pos files
+            continue
+    return skip_rows
+    
 
 def loadPPKdata(fldrlistPPK):
     """This function loads a single *.pos file per folder from a list of folders.  Each pos file in the folder has to be
@@ -707,6 +732,8 @@ def loadPPKdata(fldrlistPPK):
     :return: a data frame with loaded ppk data
     """
 
+    skip_rows = skiprows(fldrlistPPK)
+    
     T_ppk = pd.DataFrame()
     for fldr in sorted(fldrlistPPK):
         # this is before ppk processing so should agree with nmea strings
@@ -734,15 +761,6 @@ def loadPPKdata(fldrlistPPK):
             #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=10, names=colNames, engine="python")
             # except ValueError:
             #     Tpos = pd.read_csv(fn, sep="\s{2,}", header=12, names=colNames, engine="python")
-
-            # Determines how many rows to skip in the POS file
-            with open(fn, 'r') as f:
-                skip_rows = 0
-                for line in f:
-                    if line.lstrip().startswith('%  GPST'):  #line right before data
-                        skip_rows += 1
-                        break
-                    skip_rows += 1
 
             colNames = ["date", "time", "lat", "lon", "height", "Q", "ns", "sdn(m)", "sde(m)", "sdu(m)", "sdne(m)",
                  "sdeu(m)", "sdun(m)", "age(s)", "ratio"]
