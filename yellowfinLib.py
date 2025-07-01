@@ -698,7 +698,7 @@ def butter_lowpass_filter(data, cutoff, fs, order):
     # y = filtfilt(b, a, data)
     return output
 
-def skiprows(fldrlistPPK):
+def number_of_rows_to_skip_posfile(fldrlistPPK):
     """ This function determines how many rows to skip in the POS fie before grabing the data. 
 
     :param fldrlistPPK: a list of folders with ind
@@ -732,7 +732,7 @@ def loadPPKdata(fldrlistPPK):
     :return: a data frame with loaded ppk data
     """
 
-    skip_rows = skiprows(fldrlistPPK)
+    skip_rows = number_of_rows_to_skip_posfile(fldrlistPPK)
     
     T_ppk = pd.DataFrame()
     for fldr in sorted(fldrlistPPK):
