@@ -348,7 +348,7 @@ def load_h5_to_dictionary(fname):
 
 
 def makePOSfileFromRINEX(
-    roverObservables, baseObservables, navFile, outfname, configFile, executablePath="rnx2rtkp",**kwargs
+    flag, roverObservables, baseObservables, navFile, outfname, configFile, executablePath="rnx2rtkp",**kwargs
 ):
     """uses RTKLIB rnx2rtkp to post process
     Args:
@@ -374,11 +374,13 @@ def makePOSfileFromRINEX(
     )
 
     # If using a Windows machine
-    if os.name == 'nt':
+    if flag == 'Windows':
         command = f"{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile} {sp3}"
-    else:
+    elif flag == "Linux":
         command = f"./{executablePath} -o {outfname} -t -k {configFile} {roverObservables} {baseObservables} {navFile} {sp3}"
-
+    else:
+        raise ValueError('OS is not Linux or Windows')
+    
     os.system(command)
 
 
