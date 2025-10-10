@@ -379,12 +379,12 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     if FRF:
         data['xFRF'] = coords['xFRF']
         data['yFRF'] = coords['yFRF']
-        data['Profile_number'] = np.ones_like(elevation_out[idxDataToSave]) * -999,
+        data['Profile_number'] = np.ones_like(elevation_out[idxDataToSave]) * -999
         data['Survey_number'] =  np.ones_like(elevation_out[idxDataToSave]) * -999
         yellowfinLib.plotPlanViewOnArgus(data, argusGeotiff, ofName=os.path.join(plotDir, 'yellowfinDepthsOnArgus.png'))
 
         ofname = os.path.join(plotDir, 'singleProfile.png')
-        yellowfinLib.plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave)
+        yellowfinLib.plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, elevation_out, sonar_instant_depth_out, sonar_smooth_depth_out, idxDataToSave)
 
         data['UNIX_timestamp'] = data['time']
         data = yellowfinLib.transectSelection(pd.DataFrame.from_dict(data), outputDir=plotDir) # bombs out on non-frf data

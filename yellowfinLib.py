@@ -1102,7 +1102,7 @@ def transectSelection(data, **kwargs):
     return data
 
 
-def plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave):
+def plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, elevation_out, sonar_instant_depth_out, sonar_smooth_depth_out, idxDataToSave):  #plot_planview_FRF(ofname, coords, gnss_out, antenna_offset, sonar_instant_depth_out, idxDataToSave):
 
         minloc = 800
         maxloc = 1000
