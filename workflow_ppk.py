@@ -376,7 +376,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
             'Latitude': lat_out[idxDataToSave], 'Longitude': lon_out[idxDataToSave],
             'Northing': coords['StateplaneN'], 'Easting': coords['StateplaneE'],  'Elevation': elevation_out[idxDataToSave],
             'Ellipsoid': np.ones_like(elevation_out[idxDataToSave]) * -999}
-    if FRF is True:
+    if FRF:
         data['xFRF'] = coords['xFRF']
         data['yFRF'] = coords['yFRF']
         data['Profile_number'] = np.ones_like(elevation_out[idxDataToSave]) * -999,
@@ -413,7 +413,7 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         hf.create_dataset('bad_lat', data=bad_lat_out)
         hf.create_dataset('bad_lon', data=bad_lon_out)
         hf.create_dataset('sonar_depth_bin', data=sonarData['range_m'])
-        if FRF is True:
+        if FRF:
             hf.create_dataset('xFRF', data=coords['xFRF'])
             hf.create_dataset('yFRF', data=coords['yFRF'])
             hf.create_dataset('Profile_number', data=data['Profile_number'])
