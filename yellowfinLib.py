@@ -846,6 +846,9 @@ def transectSelection(data, **kwargs):
     """
     outputDir = kwargs.get("outputDir", os.getcwd())
     plotting = kwargs.get("savePlots", True)
+    # For date string in saved plot file name, convert UNIX timestamp → datetime → YYYYMMDD string
+    ts = DT.datetime.utcfromtimestamp(float(data['date'][0]))
+    ts_yyyymmdd = ts.strftime("%Y%m%d")  # e.g., 20240716
     # added columns for isTransect boolean and profileNumber float to data dataframe
     data["isTransect"] = [False] * data.shape[0]
     data["profileNumber"] = [float("nan")] * data.shape[0]
@@ -1065,11 +1068,11 @@ def transectSelection(data, **kwargs):
         plt.xlabel("xFRF (m)")
         plt.ylabel("yFRF (m)")
         cbar.set_label("Transect Number")
-        plt.title(f"Crawler Survey {DT.datetime.utcfromtimestamp(data['date'][0])}")
+        plt.title(f"Crawler Survey {ts_yyyymmdd}")
         plt.savefig(
             os.path.join(
                 outputDir,
-                f"Processed_linesWithNumbers_{DT.datetime.utcfromtimestamp(data['date'][0])}.png",
+                f"Processed_linesWithNumbers_{ts_yyyymmdd}.png",
             )
         )
         plt.close()
@@ -1089,12 +1092,12 @@ def transectSelection(data, **kwargs):
         plt.ylabel("yFRF (m)")
         cbar.set_label("Profile Number")
         plt.title(
-            f"Identified Transects vs All Points\n{DT.datetime.utcfromtimestamp(data['date'][0])}"
+            f"Identified Transects vs All Points\n{ts_yyyymmdd}"
         )
         plt.savefig(
             os.path.join(
                 outputDir,
-                f"Processed_linesWithAllData_{DT.datetime.utcfromtimestamp(data['date'][0])}.png",
+                f"Processed_linesWithAllData_{ts_yyyymmdd}.png",
             )
         )
         plt.close()
