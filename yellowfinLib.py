@@ -17,7 +17,7 @@ import tqdm
 import wget
 from matplotlib import pyplot as plt
 from rasterio import plot as rplt
-from testbedutils import geoprocess
+# from testbedutils import geoprocess
 from scipy import signal
 
 def read_emlid_pos(fldrlistPPK, plot=False, saveFname=None):
@@ -1249,3 +1249,93 @@ def qaqc_sonar_profiles(ofname, sonarData):
     # plt.gca().invert_yaxis()
     plt.tight_layout(rect=[0.05, 0.05, 0.99, 0.99], w_pad=0.01, h_pad=0.01)
     plt.savefig(ofname)
+
+def find_bottom_percentile(sonar_bs, sav_gol_poly:int =3, sav_gol_window:int=200, kernal_size:int=21,
+                           percentile_threshold:float = 98, ofname=False):
+    """Finds the bottom of from the sonar backscatter by first filering with a median blur filter. then it will take
+    the min/max range values in the water column that are greater than the percentile_threshold
+
+    Args:
+        sonar_bs: sonar backscatter dimensioned [time x depth]
+        sav_gol_poly: the polynomial order used for the savitzky golay filter
+        sav_gol_window: window size for the savitzky golay filter
+        kernal_size: kernal size for the median blur filter
+        percental_threshold: what percentile to identify the bottom backscatter.  This is global to the whole image
+        ofname: out file name if you want to save q plot (default=False) it will not make/save a plot
+
+    Returns:
+            filtered_bottom_min, min_depths, max_depths, filtered_bottom_max
+    References:
+        https://medium.com/pythoneers/introduction-to-the-savitzky-golay-filter-a-comprehensive-guide-using-python-b2dd07a8e2ce
+
+        https://docs.opencv.org/4.x/dd/d49/tutorial_py_contour_features.html
+    """
+    import cv2
+    import numpy as np
+    from scipy import signal
+
+
+    ############ filter and generate line #######################
+    normalized_sonar = ((sonar_bs/sonar_bs.max())*255).astype('uint8')
+    filterd_sonar = cv2.medianBlur(normalized_sonar, ksize=kernal_size)
+    thresh_value = np.percentile(filterd_sonar, percentile_threshold)
+    mask = filterd_sonar > thresh_value
+
+    # TODO
+    # contours, hierarchy = cv2.findContours(mask.astype('uint8'), 1, 2)
+    # areas = []
+    # for cnt in contours:
+    #     areas.append(cv2.contourArea(cnt))
+    # # then filter out the small blobs based on area
+
+    # max_depths = np.argmax(mask, axis=0)
+    # min_depths = np.argmin(mask, axis=0)
+    args_min, args_max = [], []
+    for i in mask.T:
+        where_true = np.argwhere(i)
+        if where_true.any():
+            args_max.append(where_true.max())
+            args_min.append(where_true.min())
+        else:
+            args_max.append(np.nan)
+            args_min.append(np.nan)
+
+
+    max_depths, min_depths = np.array(args_max), np.array(args_min)
+    filtered_bottom_max = signal.savgol_filter(max_depths, window_length=sav_gol_window, polyorder=sav_gol_poly)
+    filtered_bottom_min = signal.savgol_filter(min_depths, window_length=sav_gol_window, polyorder=sav_gol_poly)
+    ############## make plot ######################
+    if ofname != False:
+        plt.figure(figsize=(12,8))
+        plt.suptitle(f'Filtered sonar using ksize={kernal_size}, %thresh {percentile_threshold}')
+
+        ax1 = plt.subplot2grid((3,4), (0,0), colspan=4)
+        c = ax1.pcolormesh(normalized_sonar)
+        cbar = plt.colorbar(c, ax=ax1)
+        cbar.set_label('backscatter intensity')
+        ax1.set_title('raw data')
+
+        ax2 = plt.subplot2grid((3,4), (1,0), colspan=4, sharey=ax1, sharex=ax1)
+        c = ax2.pcolormesh(filterd_sonar)
+        cbar = plt.colorbar(c, ax=ax2)
+        cbar.set_label('backscatter intensity')
+        ax2.plot(max_depths, label='max depths')
+        ax2.plot(min_depths, label='min depths')
+        ax2.plot(filtered_bottom_max, label='filtered_depths max')
+        ax2.plot(filtered_bottom_min, label='filtered_depths_min')
+        ax2.legend(loc='upper left')
+        ax2.set_title('filtered sonar data depths identified ')
+
+        ax3 = plt.subplot2grid((3,4), (2,0), colspan=4, sharey=ax1, sharex=ax1)
+        c = ax3.pcolormesh(mask)
+        cbar = plt.colorbar(c, ax=ax3)
+        cbar.set_label('mask')
+        ax3.set_title(f'mask of data surpassing {percentile_threshold}% threshold')
+        # ax3.set_ylim([0, 300])
+        # ax3.set_xlim([0, 8000])
+
+        # plt.show()
+        plt.tight_layout()
+        plt.savefig(ofname)
+        plt.close()
+    return filtered_bottom_min, min_depths, max_depths, filtered_bottom_max
