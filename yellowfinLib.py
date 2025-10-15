@@ -847,7 +847,7 @@ def transectSelection(data, **kwargs):
     outputDir = kwargs.get("outputDir", os.getcwd())
     plotting = kwargs.get("savePlots", True)
     # For date string in saved plot file name, convert UNIX timestamp → datetime → YYYYMMDD string
-    ts = DT.datetime.utcfromtimestamp(float(data['date'][0]))
+    ts = DT.datetime.fromtimestamp(float(data['date'][0]), tz=DT.timezone.utc)
     ts_yyyymmdd = ts.strftime("%Y%m%d")  # e.g., 20240716
     # added columns for isTransect boolean and profileNumber float to data dataframe
     data["isTransect"] = [False] * data.shape[0]
@@ -1221,10 +1221,10 @@ def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T
     plt.figure(figsize=(10, 4))
     plt.suptitle('all data sources elevation', fontsize=20)
     plt.title('These data need to overlap in time for processing to work')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
+    plt.plot([DT.datetime.fromtimestamp(float(i), tz=DT.timezone.utc) for i in sonarData['time']], sonar_range, 'b.', label='sonar depth')
+    plt.plot([DT.datetime.fromtimestamp(float(i), tz=DT.timezone.utc) for i in payloadGpsData['gps_time']], payloadGpsData['altMSL'], '.g',
              label='L1 (only) GPS elev (MSL)')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
+    plt.plot([DT.datetime.fromtimestamp(float(i), tz=DT.timezone.utc) for i in T_ppk['epochTime']], T_ppk['GNSS_elevation_NAVD88'], '.r',
              label='ppk elevation [NAVD88 m]')
     plt.ylim([0, 10])
     plt.ylabel('elevation [m]')
@@ -1236,13 +1236,13 @@ def qaqc_plot_all_data_in_time(ofname, sonarData, sonar_range, payloadGpsData, T
 def qaqc_sonar_profiles(ofname, sonarData):
 
     plt.figure(figsize=(18, 6))
-    cm = plt.pcolormesh([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['range_m'],
+    cm = plt.pcolormesh([DT.datetime.fromtimestamp(float(i), tz=DT.timezone.utc) for i in sonarData['time']], sonarData['range_m'],
                         sonarData['profile_data'])
     cbar = plt.colorbar(cm)
     cbar.set_label('backscatter')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=0.1,
+    plt.plot([DT.datetime.fromtimestamp(float(i), tz=DT.timezone.utc) for i in sonarData['time']], sonarData['this_ping_depth_m'], 'r-', lw=0.1,
              label='this ping Depth')
-    plt.plot([DT.datetime.utcfromtimestamp(i) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=0.5,
+    plt.plot([DT.datetime.fromtimestamp(float(i), tz=DT.timezone.utc) for i in sonarData['time']], sonarData['smooth_depth_m'], 'k-', lw=0.5,
              label='smooth Depth')
     plt.ylim([10, 0])
     plt.legend(loc='lower left')
