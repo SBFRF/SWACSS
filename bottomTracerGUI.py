@@ -5,10 +5,11 @@ import time
 import threading
 import numpy as np
 import tkinter as tk
+from PIL import Image
 import tkinter.font as tkfont
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
-from PIL import Image
+from matplotlib.colors import LogNorm
 from tkinter import filedialog, messagebox
 from matplotlib.widgets import LassoSelector
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -111,6 +112,8 @@ class bottomTracer:
         self.save_depth_button.grid(row=0, column=2, padx=10, pady=5, sticky='ew')
         self.lasso_button = tk.Button(self.button_frame, text='', command=self.activate_lasso, state='disabled')
         self.lasso_button.grid(row=0, column=3, padx=10, pady=5, sticky='ew')
+        self.logscale_button = tk.Button(self.depth_frame, text='Toggle Log Scale', command=self.toggle_logscale)
+        self.logscale_button.grid(row=0, column=5, padx=(20, 0))  # adjust as needed
         self.quit_button = tk.Button(self.button_frame, text='Quit', command=self.quit_gui)
         self.quit_button.grid(row=1, column=0, columnspan=4, padx=10, pady=5, sticky='ew')
         for col in range(4):
@@ -142,6 +145,7 @@ class bottomTracer:
         self.lasso_selected = np.zeros(0, dtype=bool)
         self.all_green_edits = None
         self.secondary_y = None
+        self.use_log_scale = False
 
     def on_canvas_destroy(self, event):
         """Cleans up when the canvas is destroyed."""
@@ -185,6 +189,16 @@ class bottomTracer:
             for child in self.y_axis_frame.winfo_children():
                 child.config(state='normal')
             self.process_next_chunk()
+        
+        # Resize the main window to fit the figure canvas exactly
+        canvas_width = int(self.fig.get_figwidth() * self.fig.dpi)
+        canvas_height = int(self.fig.get_figheight() * self.fig.dpi)
+        # Include extra margin for widgets if needed
+        margin_w = 50  # depends on your layout
+        margin_h = 250
+        total_width = canvas_width + margin_w
+        total_height = canvas_height + margin_h
+        self.root.geometry(f"{total_width}x{total_height}")
 
     def process_next_chunk(self):
         """Handles functionality related to sonar data tracing and annotation."""
@@ -228,7 +242,11 @@ class bottomTracer:
     def update_display(self):
         """Updates internal state or display elements."""
         self.ax.clear()
-        self.ax.pcolormesh(self.image, cmap='plasma')
+        if self.use_log_scale:
+            norm = LogNorm(vmin=max(self.image.min(), 1e-3), vmax=self.image.max())
+            self.ax.pcolormesh(self.image, cmap='plasma', norm=norm)
+        else:
+            self.ax.pcolormesh(self.image, cmap='plasma')
         self.slice_length = self.image.shape[1]
         self.ax.tick_params(axis='y', which='both', labelleft=True, labelright=True)
         self.ax.set_xlim(0, self.slice_length)
@@ -246,17 +264,6 @@ class bottomTracer:
         idxE = min(self.idx_start + self.chunk_size - 1, self.total_time - 1)
         self.fig.text(0.01, 0.98, f'Slice #{self.slice_number} of {self.total_slices}\nTime Indices: {idxS} - {idxE}', horizontalalignment='left', verticalalignment='top', fontsize=12, color='black')
         self.add_secondary_y_axis()
-       
-        # Resize the main window to fit the figure canvas exactly
-        canvas_width = int(self.fig.get_figwidth() * self.fig.dpi)
-        canvas_height = int(self.fig.get_figheight() * self.fig.dpi)
-        # Include extra margin for widgets if needed
-        margin_w = 50  # depends on your layout
-        margin_h = 250
-        total_width = canvas_width + margin_w
-        total_height = canvas_height + margin_h
-        self.root.geometry(f"{total_width}x{total_height}")
-        
         self.canvas.draw()
         self.coordinates = []
         self.tracing = False
@@ -345,6 +352,11 @@ class bottomTracer:
         self.ymax_entry.delete(0, tk.END)
         self.ymax_entry.insert(0, str(int(ymax)))
         self.add_secondary_y_axis()
+        
+    def toggle_logscale(self):
+        """Toggles the color scale between linear and logarithmic."""
+        self.use_log_scale = not self.use_log_scale
+        self.update_display()
 
     def plot_depth(self):
         """Plots the depth line (ping or smooth) on the current plot."""

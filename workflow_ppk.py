@@ -1,6 +1,6 @@
 import os
 import matplotlib
-
+from bottomTracerGUI import run_sonar_tracer_gui
 # matplotlib.use("TkAgg")
 from scipy import interpolate, signal
 import py2netCDF
@@ -155,7 +155,6 @@ def main(
     datadir,
     geoid,
     makePos=True,
-    verbose=2,
     rtklib_executable_path="ref/rnx2rtkp",
     instant_sonar_confidence=99,
     smoothed_sonar_confidence=60,
@@ -163,6 +162,7 @@ def main(
 ):
     """This function is the main function for processing ppk GNSS and sonar data for MURG."""
     acceptable_time_sync = ["default", "instant", "smooth", "native"]
+    verbose = yaml_config['processing'].get('verbosity', 2) # overwrite hard argument with yaml
     verbosity_conversion(verbose)
     # unpack yaml configuration
     antenna_offset = yaml_config.get(
@@ -223,7 +223,7 @@ def main(
             yellowfinLib.loadSonar_s500_binary(fpathSonar, h5_ofname=saveFnameSonar, verbose=verbose)
         else:
             logging.info(f"Skipping {saveFnameSonar}")
-    elif sonar_model in ["d032", "ect-d032"]:
+    elif sonar_model.lower() in ["d032", "ect-d032"]:
         high_low = yellowfinLib.is_high_low_dual_freq(saveFnameSonar)
         timeString = timeString + "_low_"
         of_plot = os.path.join(plotDir, f"{timeString}_raw_sonar-ect-d032.png")
@@ -342,7 +342,8 @@ def main(
 
     ##################################### above is loading/making intermediate files ################################3
     # 6.2: load all files we created in previous steps
-    sonarData = yellowfinLib.load_h5_to_dictionary(saveFnameSonar)
+    #sonarData = yellowfinLib.load_h5_to_dictionary(saveFnameSonar)
+    sonarData = run_sonar_tracer_gui(saveFnameSonar, '250')
     T_ppk = pd.read_hdf(saveFnamePPK)
     if time_sync_method != "native":
         payload_gps_data = yellowfinLib.load_h5_to_dictionary(
@@ -711,7 +712,6 @@ if __name__ == "__main__":
         args.data_dir,
         geoid=args.geoid_file,
         makePos=args.make_pos,
-        verbose=args.verbosity,
         rtklib_executable_path=args.rtklib_executable,
         yaml_config=yaml_config,
     )

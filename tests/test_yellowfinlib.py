@@ -48,7 +48,6 @@ def test_low_freq_sine_passes(fs, order):
     rms_out = np.sqrt(np.mean(out**2))
     assert np.isclose(rms_out, rms_in, rtol=0.05), f"Low‐freq ({f_low}Hz) should pass with little attenuation"
 
-
 def test_high_freq_sine_attenuated(fs, order):
     t = np.arange(0, 1, 1 / fs)
     f_high = 200  # well above cutoff
