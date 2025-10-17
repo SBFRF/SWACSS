@@ -40,7 +40,7 @@ def parse_args(__version__):
                         help='sets verbosity for debug, 1=Debug (most), 2=Info (normal), 3=Warning (least)')
     parser.add_argument('--sonar_method', type=str, default='default',
                         help="which s500 depth reading to use for time-shifting and bottom reporting, avialable "
-                             "are ['default', 'smooth', 'instant']. default uses instant depth for time syncing and"
+                             "are ['default', 'smooth', 'instant', 'qaqc']. default uses instant depth for time syncing and"
                              " smooth depths for final bathy out; 'smooth' uses smoothed values for both, 'instant' "
                              "uses instant values for both")
     parser.add_argument('--rtklib_executable', type=str, default='ref/rnx2rtkp',
@@ -84,6 +84,10 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
         time_sync = sonar_method
     elif sonar_method == 'smoothed':
         sonar_confidence = smoothed_sonar_confidence
+        bathy_report = sonar_method
+        time_sync = sonar_method
+    elif sonar_method == 'qaqc':
+        sonar_confidence = -1
         bathy_report = sonar_method
         time_sync = sonar_method
 
@@ -234,8 +238,11 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
     elif sonar_method == 'instant':
         sonar_range = sonarData['this_ping_depth_m']
         qualityLogic = sonarData['this_ping_depth_measurement_confidence'] > instant_sonar_confidence
+    elif sonar_method == 'qaqc':
+        sonar_range = sonarData['qaqc_depth_m']
+        qualityLogic = sonarData['qaqc_depth_m'] >= 0
     else:
-        raise ValueError('acceptable sonar methods include ["instant", "smooth"]')
+        raise ValueError('acceptable sonar methods include ["default", "instant", "smooth", "qaqc"]')
     # use the above to adjust whether you want smoothed/filtered data or raw ping depth values
 
     ofname = os.path.join(plotDir, 'SonarBackScatter.png')
@@ -350,8 +357,12 @@ def main(datadir, geoid, makePos=True, verbose=2, sonar_method='default', rtklib
                     elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
                                           sonarData['this_ping_depth_m'][idxTimeMatchSonar]
                     sonar_out[tidx] = sonarData['this_ping_depth_m'][idxTimeMatchSonar]
+                elif sonar_method == 'qaqc':
+                    elevation_out[tidx] = T_ppk['GNSS_elevation_NAVD88'][idxTimeMatchGNSS] - antenna_offset - \
+                                          sonarData['qaqc_depth_m'][idxTimeMatchSonar]
+                    sonar_out[tidx] = sonarData['qaqc_depth_m'][idxTimeMatchSonar]
                 else:
-                    raise ValueError('acceptable sonar methods include ["default", "instant", "smooth"]')
+                    raise ValueError('acceptable sonar methods include ["default", "instant", "smooth", "qaqc"]')
 
             # now log bad locations for quality plotting
             if T_ppk['Q'][idxTimeMatchGNSS] <= ppk_quality_threshold and not qualityLogic[idxTimeMatchSonar]:

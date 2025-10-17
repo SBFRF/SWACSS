@@ -760,7 +760,7 @@ def unpackYellowfinCombinedRaw(fname):
     return data
 
 
-def plotPlanViewOnArgus(data, geoTifName, ofName=None):
+def plotPlanViewOnArgus(data, geoTifName, ofName=None, argus_time_out_s=30):
     """plots a survey path over a geotiff at the FRF (assumes NC stateplane)
     Args:
         data: this is a dictionary of data loaded with keys of 'longitude', 'latitude', 'elevation'
@@ -779,6 +779,8 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
         time.sleep(30)
         tt += 30
         print(f"waited for {tt} seconds for {geoTifName}")
+        if tt >= argus_time_out_s:
+            return
 
     timex = rasterio.open(geoTifName)
     # array = timex.read()  # for reference, this pulls the image data out of the geotiff object
