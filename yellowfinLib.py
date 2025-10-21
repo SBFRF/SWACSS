@@ -760,12 +760,13 @@ def unpackYellowfinCombinedRaw(fname):
     return data
 
 
-def plotPlanViewOnArgus(data, geoTifName, ofName=None):
+def plotPlanViewOnArgus(data, geoTifName, ofName=None, argus_time_out_s=120):
     """plots a survey path over a geotiff at the FRF (assumes NC stateplane)
     Args:
         data: this is a dictionary of data loaded with keys of 'longitude', 'latitude', 'elevation'
         geoTifName: this is a filenamepath of a geotiff file over which elevation and path data are to be overlayed
         ofname: this is the plot output save name/location (default=None)
+        argus_time_out_s: time to wait to pull argus imagery before timing out, in seconds (default=120)
 
     References
         https://pratiman-91.github.io/2020/06/30/Plotting-GeoTIFF-in-python.html
@@ -779,6 +780,9 @@ def plotPlanViewOnArgus(data, geoTifName, ofName=None):
         time.sleep(30)
         tt += 30
         print(f"waited for {tt} seconds for {geoTifName}")
+        if tt >= argus_time_out_s:
+            print(f"Timed out after {tt} seconds waiting for {geoTifName}. Image not found.")
+            return
 
     timex = rasterio.open(geoTifName)
     # array = timex.read()  # for reference, this pulls the image data out of the geotiff object
